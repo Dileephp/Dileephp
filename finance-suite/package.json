@@ -1,0 +1,10 @@
+{
+  "name": "finance-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Compound interest, SIP goal planner, and financial calculators",
+  "scripts": {
+    "start": "npx serve -l 3456 .",
+    "dev": "npm run start"
+  }
+}

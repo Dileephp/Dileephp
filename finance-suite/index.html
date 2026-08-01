@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finance Suite — Compound Interest & Investment Planner</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header-inner">
+          <div class="brand">
+            <span class="brand-icon" aria-hidden="true">₹</span>
+            <div>
+              <h1>Finance Suite</h1>
+              <p>Compound interest, goal planning & investment calculators</p>
+            </div>
+          </div>
+          <div class="currency-picker">
+            <label for="currencySelect">Currency</label>
+            <select id="currencySelect">
+              <option value="INR" selected>INR (₹)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="GBP">GBP (£)</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-layout">
+        <aside class="sidebar">
+          <nav class="sidebar-nav" role="tablist" aria-label="Finance tools">
+            <div class="menu-group" data-group="calculators">
+              <button type="button" class="menu-group-toggle" aria-expanded="true" aria-controls="menu-calculators">
+                <span>Calculators</span>
+                <span class="menu-chevron" aria-hidden="true"></span>
+              </button>
+              <div id="menu-calculators" class="menu-group-items">
+                <button type="button" class="menu-item active" data-tab="compound" role="tab" aria-selected="true">
+                  Compound Interest
+                </button>
+                <button type="button" class="menu-item" data-tab="goal" role="tab" aria-selected="false">
+                  Goal / SIP Planner
+                </button>
+                <button type="button" class="menu-item" data-tab="sip" role="tab" aria-selected="false">
+                  SIP Calculator
+                </button>
+                <button type="button" class="menu-item" data-tab="simple" role="tab" aria-selected="false">
+                  Simple Interest
+                </button>
+                <button type="button" class="menu-item" data-tab="emi" role="tab" aria-selected="false">
+                  EMI Calculator
+                </button>
+                <button type="button" class="menu-item" data-tab="present" role="tab" aria-selected="false">
+                  Present Value
+                </button>
+              </div>
+            </div>
+
+            <div class="menu-group" data-group="averages">
+              <button type="button" class="menu-group-toggle" aria-expanded="true" aria-controls="menu-averages">
+                <span>Averages</span>
+                <span class="menu-chevron" aria-hidden="true"></span>
+              </button>
+              <div id="menu-averages" class="menu-group-items">
+                <button type="button" class="menu-item" data-tab="avg-neutral" role="tab" aria-selected="false">
+                  Neutral at Resistance
+                </button>
+              </div>
+            </div>
+          </nav>
+
+          <div class="menu-mobile">
+            <label for="calcMenuSelect">Choose tool</label>
+            <select id="calcMenuSelect" aria-label="Choose tool">
+              <optgroup label="Calculators">
+                <option value="compound" selected>Compound Interest</option>
+                <option value="goal">Goal / SIP Planner</option>
+                <option value="sip">SIP Calculator</option>
+                <option value="simple">Simple Interest</option>
+                <option value="emi">EMI Calculator</option>
+                <option value="present">Present Value</option>
+              </optgroup>
+              <optgroup label="Averages">
+                <option value="avg-neutral">Neutral at Resistance</option>
+              </optgroup>
+            </select>
+          </div>
+        </aside>
+
+        <div class="content-area">
+          <main class="main">
+        <!-- Compound Interest -->
+        <section id="panel-compound" class="panel active" role="tabpanel">
+          <div class="panel-grid">
+            <form id="formCompound" class="card form-card">
+              <h2>Compound Interest Calculator</h2>
+              <p class="hint">Initial deposit, regular contributions, rate, time & compounding frequency.</p>
+              <div class="field">
+                <label for="ciPrincipal">Initial deposit (principal)</label>
+                <input id="ciPrincipal" type="number" min="0" step="1000" value="100000" />
+              </div>
+              <div class="field">
+                <label for="ciContribution" id="ciContributionLabel">Regular contribution (per month)</label>
+                <input id="ciContribution" type="number" min="0" step="500" value="5000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="ciRate" id="ciRateLabel">Interest / return rate (% per year)</label>
+                  <input id="ciRate" type="number" min="0" step="0.0001" value="12" />
+                </div>
+                <div class="field">
+                  <label for="ciRatePeriod">Rate is quoted</label>
+                  <select id="ciRatePeriod">
+                    <option value="daily">Per day (365 days)</option>
+                    <option value="daily-business">Per business day (252 days)</option>
+                    <option value="weekly">Per week</option>
+                    <option value="bi-weekly">Per bi-week (fortnight)</option>
+                    <option value="monthly">Per month</option>
+                    <option value="quarterly">Per quarter</option>
+                    <option value="half-yearly">Per half-year</option>
+                    <option value="yearly" selected>Per annum (yearly)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="ciYears">Time (years)</label>
+                  <input id="ciYears" type="number" min="0" step="1" value="10" />
+                </div>
+                <div class="field">
+                  <label for="ciMonths">Time (months)</label>
+                  <input id="ciMonths" type="number" min="0" max="11" step="1" value="0" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="ciFrequency">Compounding / contribution frequency</label>
+                <select id="ciFrequency">
+                  <option value="daily">Daily (365 days, incl. weekends)</option>
+                  <option value="daily-business">Daily (252 business days, excl. weekends)</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly" selected>Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="half-yearly">Half-yearly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Calculate</button>
+            </form>
+            <div id="resultCompound" class="card result-card hidden"></div>
+          </div>
+          <div id="breakdownCompound" class="card table-card hidden"></div>
+        </section>
+
+        <!-- Goal / SIP Planner -->
+        <section id="panel-goal" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formGoal" class="card form-card">
+              <h2>Goal Planner — How much to invest?</h2>
+              <p class="hint">
+                Enter target corpus, years & expected return. Get required investment per month, quarter,
+                half-year or year.
+              </p>
+              <div class="field">
+                <label for="goalCorpus">Target corpus (future value)</label>
+                <input id="goalCorpus" type="number" min="0" step="10000" value="5000000" />
+              </div>
+              <div class="field">
+                <label for="goalPrincipal">Existing savings today (optional)</label>
+                <input id="goalPrincipal" type="number" min="0" step="1000" value="0" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="goalRate">Expected annual return (%)</label>
+                  <input id="goalRate" type="number" min="0" max="100" step="0.1" value="12" />
+                </div>
+                <div class="field">
+                  <label for="goalYears">Investment period (years)</label>
+                  <input id="goalYears" type="number" min="0" step="1" value="15" />
+                </div>
+                <div class="field">
+                  <label for="goalMonths">Investment period (months)</label>
+                  <input id="goalMonths" type="number" min="0" max="11" step="1" value="0" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="goalFrequency">Plan using frequency</label>
+                <select id="goalFrequency">
+                  <option value="monthly" selected>Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="half-yearly">Half-yearly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Calculate all frequencies</button>
+            </form>
+            <div id="resultGoal" class="card result-card hidden"></div>
+          </div>
+          <div id="breakdownGoal" class="card table-card hidden"></div>
+        </section>
+
+        <!-- SIP Calculator -->
+        <section id="panel-sip" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formSip" class="card form-card">
+              <h2>SIP / Recurring Investment Calculator</h2>
+              <p class="hint">How much wealth will you build with regular investments?</p>
+              <div class="field">
+                <label for="sipPrincipal">Lump sum today (optional)</label>
+                <input id="sipPrincipal" type="number" min="0" step="1000" value="0" />
+              </div>
+              <div class="field">
+                <label for="sipAmount">Investment per period</label>
+                <input id="sipAmount" type="number" min="0" step="500" value="10000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="sipRate">Expected annual return (%)</label>
+                  <input id="sipRate" type="number" min="0" max="100" step="0.1" value="12" />
+                </div>
+                <div class="field">
+                  <label for="sipYears">Duration (years)</label>
+                  <input id="sipYears" type="number" min="1" step="1" value="10" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="sipFrequency">Investment frequency</label>
+                <select id="sipFrequency">
+                  <option value="monthly" selected>Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="half-yearly">Half-yearly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Calculate</button>
+            </form>
+            <div id="resultSip" class="card result-card hidden"></div>
+          </div>
+        </section>
+
+        <!-- Simple Interest -->
+        <section id="panel-simple" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formSimple" class="card form-card">
+              <h2>Simple Interest Calculator</h2>
+              <div class="field">
+                <label for="siPrincipal">Principal amount</label>
+                <input id="siPrincipal" type="number" min="0" step="1000" value="100000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="siRate">Annual interest rate (%)</label>
+                  <input id="siRate" type="number" min="0" max="100" step="0.1" value="8" />
+                </div>
+                <div class="field">
+                  <label for="siYears">Time (years)</label>
+                  <input id="siYears" type="number" min="0" step="1" value="5" />
+                </div>
+                <div class="field">
+                  <label for="siMonths">Time (months)</label>
+                  <input id="siMonths" type="number" min="0" max="11" step="1" value="0" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">Calculate</button>
+            </form>
+            <div id="resultSimple" class="card result-card hidden"></div>
+          </div>
+          <div id="breakdownSimple" class="card table-card hidden"></div>
+        </section>
+
+        <!-- EMI -->
+        <section id="panel-emi" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formEmi" class="card form-card">
+              <h2>EMI / Loan Calculator</h2>
+              <p class="hint">Calculate EMI, prepayment impact, and optional parallel SIP investment.</p>
+              <div class="field">
+                <label for="emiAmount" class="label-with-tip">
+                  <span>Loan amount</span>
+                  <span class="tooltip" tabindex="0">
+                    <span class="tooltip-icon" aria-hidden="true">?</span>
+                    <span class="tooltip-content" role="tooltip">Total principal borrowed. This is the amount on which interest is charged.</span>
+                  </span>
+                </label>
+                <input id="emiAmount" type="number" min="0" step="10000" value="2500000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="emiRate" class="label-with-tip">
+                    <span>Annual interest rate (%)</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Nominal annual interest rate on the loan. EMI is calculated using a monthly rate derived from this value.</span>
+                    </span>
+                  </label>
+                  <input id="emiRate" type="number" min="0" max="100" step="0.1" value="9.5" />
+                </div>
+                <div class="field">
+                  <label for="emiTenure" class="label-with-tip">
+                    <span>Original tenure (months)</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Initial loan duration in months before any prepayments. Prepayments may shorten the actual completion time.</span>
+                    </span>
+                  </label>
+                  <input id="emiTenure" type="number" min="1" step="1" value="240" />
+                </div>
+              </div>
+
+              <div class="field prepay-section">
+                <div class="prepay-header">
+                  <label class="label-with-tip">
+                    <span>Partial prepayments (optional)</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Extra lump-sum payments on a fixed schedule. They reduce outstanding principal and shorten loan tenure while EMI stays the same.</span>
+                    </span>
+                  </label>
+                  <button type="button" id="emiAddPrepay" class="btn btn-secondary btn-sm">+ Add prepayment</button>
+                </div>
+                <p class="hint">Extra payments on a quarterly, half-yearly, or yearly schedule reduce loan tenure.</p>
+                <div class="table-scroll prepay-grid-wrap">
+                  <table class="prepay-grid" id="emiPrepayTable">
+                    <thead>
+                      <tr>
+                        <th>
+                          <span class="th-with-tip">Frequency
+                            <span class="tooltip" tabindex="0">
+                              <span class="tooltip-icon" aria-hidden="true">?</span>
+                              <span class="tooltip-content" role="tooltip">How often you make an extra payment — every 3, 6, or 12 months.</span>
+                            </span>
+                          </span>
+                        </th>
+                        <th>
+                          <span class="th-with-tip">Amount
+                            <span class="tooltip" tabindex="0">
+                              <span class="tooltip-icon" aria-hidden="true">?</span>
+                              <span class="tooltip-content" role="tooltip">Lump-sum prepayment amount each time the schedule triggers.</span>
+                            </span>
+                          </span>
+                        </th>
+                        <th>
+                          <span class="th-with-tip">First payment (month)
+                            <span class="tooltip" tabindex="0">
+                              <span class="tooltip-icon" aria-hidden="true">?</span>
+                              <span class="tooltip-content" role="tooltip">Loan month when the first prepayment occurs. Month 12 means the first extra payment at the end of year 1.</span>
+                            </span>
+                          </span>
+                        </th>
+                        <th aria-label="Actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="emiPrepayBody"></tbody>
+                  </table>
+                </div>
+                <p id="emiPrepayEmpty" class="hint prepay-empty">No prepayments added — loan runs for the full tenure.</p>
+              </div>
+
+              <div class="field sip-with-emi-section">
+                <h3 class="subsection-title">Parallel SIP (invest while repaying)</h3>
+                <p class="hint">Estimate returns if you invest a portion of each EMI in a monthly SIP for the same duration as the loan.</p>
+                <div class="field-row">
+                  <div class="field">
+                    <label for="emiSipPercent" class="label-with-tip">
+                      <span>SIP as % of EMI</span>
+                      <span class="tooltip" tabindex="0">
+                        <span class="tooltip-icon" aria-hidden="true">?</span>
+                        <span class="tooltip-content" role="tooltip">Percentage of your monthly EMI invested as SIP. Example: 10% of ₹23,303 = ₹2,330 invested each month. Set to 0 to skip SIP calculation.</span>
+                      </span>
+                    </label>
+                    <input id="emiSipPercent" type="number" min="0" max="100" step="1" value="10" />
+                  </div>
+                  <div class="field">
+                    <label for="emiSipRate" class="label-with-tip">
+                      <span>Expected SIP return (% p.a.)</span>
+                      <span class="tooltip" tabindex="0">
+                        <span class="tooltip-icon" aria-hidden="true">?</span>
+                        <span class="tooltip-content" role="tooltip">Assumed annual return on the parallel SIP (e.g. 12% for equity mutual funds). Used for projection only — not guaranteed.</span>
+                      </span>
+                    </label>
+                    <input id="emiSipRate" type="number" min="0" max="100" step="0.1" value="12" />
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary">Calculate EMI &amp; SIP</button>
+            </form>
+            <div class="emi-results-stack">
+              <div id="resultEmi" class="card result-card hidden"></div>
+              <div id="resultEmiSip" class="card result-card hidden sip-result-card"></div>
+            </div>
+          </div>
+          <div id="breakdownEmi" class="card table-card hidden"></div>
+        </section>
+
+        <!-- Present Value -->
+        <section id="panel-present" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formPresent" class="card form-card">
+              <h2>Present Value Calculator</h2>
+              <p class="hint">What lump sum today equals a future amount at a given return?</p>
+              <div class="field">
+                <label for="pvFuture">Future amount needed</label>
+                <input id="pvFuture" type="number" min="0" step="10000" value="1000000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="pvRate">Discount / return rate (% p.a.)</label>
+                  <input id="pvRate" type="number" min="0" max="100" step="0.1" value="10" />
+                </div>
+                <div class="field">
+                  <label for="pvYears">Years until needed</label>
+                  <input id="pvYears" type="number" min="1" step="1" value="10" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="pvFrequency">Compounding frequency</label>
+                <select id="pvFrequency">
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="half-yearly">Half-yearly</option>
+                  <option value="yearly" selected>Yearly</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">Calculate</button>
+            </form>
+            <div id="resultPresent" class="card result-card hidden"></div>
+          </div>
+        </section>
+
+        <!-- Stock Average — Neutral at Resistance -->
+        <section id="panel-avg-neutral" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formAvgNeutral" class="card form-card">
+              <h2>Neutral at Resistance</h2>
+              <p class="hint">Enter your purchases (quantity &amp; buy price), current market price, and resistance — get shares to buy for zero P&amp;L at resistance.</p>
+
+              <div class="field prepay-section">
+                <div class="prepay-header">
+                  <label class="label-with-tip">
+                    <span>Your stock purchases</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Add each buy separately — quantity and price per share. Delete a row if you remove a lot from the calculation.</span>
+                    </span>
+                  </label>
+                  <button type="button" id="avgAddLot" class="btn btn-secondary btn-sm">+ Add purchase</button>
+                </div>
+                <div class="table-scroll prepay-grid-wrap">
+                  <table class="prepay-grid" id="avgLotTable">
+                    <thead>
+                      <tr>
+                        <th>Quantity (shares)</th>
+                        <th>Buy price (per share)</th>
+                        <th aria-label="Actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="avgLotBody"></tbody>
+                  </table>
+                </div>
+                <p id="avgLotEmpty" class="hint prepay-empty">Add at least one purchase to calculate.</p>
+              </div>
+
+              <div class="field-row">
+                <div class="field">
+                  <label for="avgCurrentPrice" class="label-with-tip">
+                    <span>Current price (per share)</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Today's market price — the price at which you will buy additional shares to average down or up.</span>
+                    </span>
+                  </label>
+                  <input id="avgCurrentPrice" type="number" min="0" step="0.05" value="120" />
+                </div>
+                <div class="field">
+                  <label for="avgResistance" class="label-with-tip">
+                    <span>Resistance point (per share)</span>
+                    <span class="tooltip" tabindex="0">
+                      <span class="tooltip-icon" aria-hidden="true">?</span>
+                      <span class="tooltip-content" role="tooltip">Target price where you want to be neutral (zero profit/loss). Must differ from current price.</span>
+                    </span>
+                  </label>
+                  <input id="avgResistance" type="number" min="0" step="0.05" value="150" />
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary">Calculate shares needed</button>
+            </form>
+            <div id="resultAvgNeutral" class="card result-card hidden"></div>
+          </div>
+        </section>
+          </main>
+
+          <footer class="footer">
+            <p>
+              Calculations assume contributions at end of each period. For education only — not financial advice.
+            </p>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
