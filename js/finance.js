@@ -590,3 +590,37 @@ export function mtfInterest({ positionValue, ownCapital, dailyRatePercent, holdi
     schedule,
   };
 }
+
+/**
+ * Profit/loss on an MTF position after interest. Leverage L means your own money is
+ * buyValue / L and the broker funds the rest; interest accrues daily on the funded part.
+ */
+export function mtfPositionPnl({
+  quantity,
+  avgPrice,
+  currentPrice,
+  leverage,
+  dailyRatePercent,
+  holdingDays,
+}) {
+  const buyValue = quantity * avgPrice;
+  const currentValue = quantity * currentPrice;
+  const ownCapital = buyValue / leverage;
+  const fundedAmount = buyValue - ownCapital;
+  const dailyInterest = (fundedAmount * dailyRatePercent) / 100;
+  const totalInterest = dailyInterest * holdingDays;
+  const grossPnl = currentValue - buyValue;
+  const netPnl = grossPnl - totalInterest;
+  return {
+    buyValue,
+    currentValue,
+    ownCapital,
+    fundedAmount,
+    dailyInterest,
+    totalInterest,
+    grossPnl,
+    netPnl,
+    netReturnOnCapitalPercent: ownCapital > 0 ? (netPnl / ownCapital) * 100 : 0,
+    breakevenPrice: avgPrice + totalInterest / quantity,
+  };
+}

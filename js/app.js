@@ -24,6 +24,7 @@ import {
   stockNeutralAtResistance,
   presentValue,
   mtfInterest,
+  mtfPositionPnl,
   compoundBreakdown,
   simpleInterestBreakdown,
   goalBreakdown,
@@ -1029,12 +1030,63 @@ function initMtf() {
   });
 }
 
+function initMtfPnl() {
+  $('formMtfPnl').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const resultEl = $('resultMtfPnl');
+    try {
+      const name = $('mpName').value.trim() || 'Position';
+      const quantity = parseInput($('mpQty').value);
+      const leverage = parseInput($('mpLeverage').value);
+      const avgPrice = parseInput($('mpAvg').value);
+      const currentPrice = parseInput($('mpCmp').value);
+      const dailyRatePercent = parseInput($('mpRate').value);
+      const holdingDays = Math.floor(parseInput($('mpDays').value));
+
+      validatePositive(quantity, 'Number of shares');
+      validatePositive(avgPrice, 'Average buy price');
+      validatePositive(currentPrice, 'Current price');
+      validateRate(dailyRatePercent, 'Interest rate');
+      if (leverage < 1) throw new Error('Leverage must be at least 1x.');
+      if (holdingDays < 1) throw new Error('Days held must be at least 1.');
+
+      const r = mtfPositionPnl({ quantity, avgPrice, currentPrice, leverage, dailyRatePercent, holdingDays });
+      const label = r.netPnl >= 0 ? 'Net profit' : 'Net loss';
+      const escapedName = name.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+      const grossOnCapital = r.ownCapital > 0 ? (r.grossPnl / r.ownCapital) * 100 : 0;
+      const grossOnBuyValue = (r.grossPnl / r.buyValue) * 100;
+      const netOnBuyValue = (r.netPnl / r.buyValue) * 100;
+
+      renderResultCard(
+        resultEl,
+        `${escapedName} — ${label} after interest`,
+        `${fc(r.netPnl)} (${formatPercent(r.netReturnOnCapitalPercent, 2)})`,
+        [
+          { label: 'Buy value', value: fc(r.buyValue) },
+          { label: 'Your own amount', value: fc(r.ownCapital) },
+          { label: 'Broker-funded amount', value: fc(r.fundedAmount) },
+          { label: 'Interest per day', value: fc(r.dailyInterest) },
+          { label: `Interest for ${holdingDays} day${holdingDays === 1 ? '' : 's'}`, value: fc(r.totalInterest), highlight: true },
+          { label: 'Profit / loss before interest', value: `${fc(r.grossPnl)} (${formatPercent(grossOnCapital, 2)} on your amount)` },
+          { label: `${label} after interest`, value: `${fc(r.netPnl)} (${formatPercent(r.netReturnOnCapitalPercent, 2)} on your amount)`, highlight: true },
+          { label: 'Before interest, % of buy value', value: formatPercent(grossOnBuyValue, 2) },
+          { label: 'After interest, % of buy value', value: formatPercent(netOnBuyValue, 2) },
+          { label: 'Break-even price (covers interest)', value: fc(r.breakevenPrice) },
+        ]
+      );
+    } catch (err) {
+      renderError(resultEl, err.message);
+    }
+  });
+}
+
 function runInitialCalculations() {
   $('formCompound').requestSubmit();
   $('formGoal').requestSubmit();
   $('formSimple').requestSubmit();
   $('formEmi').requestSubmit();
   $('formMtf').requestSubmit();
+  $('formMtfPnl').requestSubmit();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1047,5 +1099,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initAvgNeutral();
   initPresent();
   initMtf();
+  initMtfPnl();
   runInitialCalculations();
 });

@@ -62,6 +62,9 @@
                 <button type="button" class="menu-item" data-tab="mtf" role="tab" aria-selected="false">
                   MTF Interest
                 </button>
+                <button type="button" class="menu-item" data-tab="mtfpnl" role="tab" aria-selected="false">
+                  MTF Position P&amp;L
+                </button>
               </div>
             </div>
 
@@ -89,6 +92,7 @@
                 <option value="emi">EMI Calculator</option>
                 <option value="present">Present Value</option>
                 <option value="mtf">MTF Interest</option>
+                <option value="mtfpnl">MTF Position P&amp;L</option>
               </optgroup>
               <optgroup label="Averages">
                 <option value="avg-neutral">Neutral at Resistance</option>
@@ -467,6 +471,53 @@
             <div id="resultMtf" class="card result-card hidden"></div>
           </div>
           <div id="breakdownMtf" class="card table-card hidden"></div>
+        </section>
+
+        <!-- MTF Position P&L -->
+        <section id="panel-mtfpnl" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formMtfPnl" class="card form-card">
+              <h2>MTF Position P&amp;L</h2>
+              <p class="hint">Enter a stock you hold on MTF to see the interest paid so far and your profit or loss after interest.</p>
+              <div class="field">
+                <label for="mpName">Stock name (optional)</label>
+                <input id="mpName" type="text" value="UltraTech Cement" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="mpQty">Number of shares</label>
+                  <input id="mpQty" type="number" min="1" step="1" value="10" />
+                </div>
+                <div class="field">
+                  <label for="mpLeverage">Leverage (x)</label>
+                  <input id="mpLeverage" type="number" min="1" step="0.01" value="4.42" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="mpAvg">Average buy price</label>
+                  <input id="mpAvg" type="number" min="0" step="0.05" value="11000" />
+                </div>
+                <div class="field">
+                  <label for="mpCmp">Current price (or sell price)</label>
+                  <input id="mpCmp" type="number" min="0" step="0.05" value="11200" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="mpDays">Days held</label>
+                  <input id="mpDays" type="number" min="1" max="3650" step="1" value="25" />
+                </div>
+                <div class="field">
+                  <label for="mpRate">Interest rate (% per day)</label>
+                  <input id="mpRate" type="number" min="0" max="100" step="0.001" value="0.04" />
+                </div>
+              </div>
+              <p class="hint">Leverage 4.42x means you paid 1/4.42 of the buy value yourself; the broker funded the rest. Brokerage, taxes and other charges are not included.</p>
+              <button type="submit" class="btn btn-primary">Calculate P&amp;L</button>
+            </form>
+            <div id="resultMtfPnl" class="card result-card hidden"></div>
+          </div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->
