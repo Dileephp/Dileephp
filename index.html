@@ -478,46 +478,53 @@
           <div class="panel-grid">
             <form id="formMtfPnl" class="card form-card">
               <h2>MTF Position P&amp;L</h2>
-              <p class="hint">Enter a stock you hold on MTF to see the interest paid so far and your profit or loss after interest.</p>
+              <p class="hint">Add each buy transaction of a stock you hold on MTF. You get the interest paid and the profit or loss after interest, per transaction and in total.</p>
               <div class="field">
                 <label for="mpName">Stock name (optional)</label>
                 <input id="mpName" type="text" value="UltraTech Cement" />
               </div>
               <div class="field-row">
                 <div class="field">
-                  <label for="mpQty">Number of shares</label>
-                  <input id="mpQty" type="number" min="1" step="1" value="10" />
+                  <label for="mpCmp">Current price (or sell price)</label>
+                  <input id="mpCmp" type="number" min="0" step="0.05" value="11354" />
                 </div>
                 <div class="field">
                   <label for="mpLeverage">Leverage (x)</label>
                   <input id="mpLeverage" type="number" min="1" step="0.01" value="4.42" />
                 </div>
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <label for="mpAvg">Average buy price</label>
-                  <input id="mpAvg" type="number" min="0" step="0.05" value="11000" />
+              <div class="field">
+                <label for="mpRate">Interest rate (% per day)</label>
+                <input id="mpRate" type="number" min="0" max="100" step="0.001" value="0.04" />
+              </div>
+
+              <div class="field prepay-section">
+                <div class="prepay-header">
+                  <label>Buy transactions</label>
+                  <button type="button" id="mpAddLot" class="btn btn-secondary btn-sm">+ Add transaction</button>
                 </div>
-                <div class="field">
-                  <label for="mpCmp">Current price (or sell price)</label>
-                  <input id="mpCmp" type="number" min="0" step="0.05" value="11200" />
+                <p class="hint">Quantity, buy price and how many days old each transaction is (as shown in your broker app).</p>
+                <div class="table-scroll prepay-grid-wrap">
+                  <table class="prepay-grid" id="mpLotTable">
+                    <thead>
+                      <tr>
+                        <th>Quantity</th>
+                        <th>Buy price</th>
+                        <th>Days held</th>
+                        <th aria-label="Actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="mpLotBody"></tbody>
+                  </table>
                 </div>
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <label for="mpDays">Days held</label>
-                  <input id="mpDays" type="number" min="1" max="3650" step="1" value="25" />
-                </div>
-                <div class="field">
-                  <label for="mpRate">Interest rate (% per day)</label>
-                  <input id="mpRate" type="number" min="0" max="100" step="0.001" value="0.04" />
-                </div>
-              </div>
+
               <p class="hint">Leverage 4.42x means you paid 1/4.42 of the buy value yourself; the broker funded the rest. Brokerage, taxes and other charges are not included.</p>
               <button type="submit" class="btn btn-primary">Calculate P&amp;L</button>
             </form>
             <div id="resultMtfPnl" class="card result-card hidden"></div>
           </div>
+          <div id="breakdownMtfPnl" class="card table-card hidden"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->

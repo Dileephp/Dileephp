@@ -592,35 +592,49 @@ export function mtfInterest({ positionValue, ownCapital, dailyRatePercent, holdi
 }
 
 /**
- * Profit/loss on an MTF position after interest. Leverage L means your own money is
- * buyValue / L and the broker funds the rest; interest accrues daily on the funded part.
+ * Profit/loss on MTF buy transactions (lots) after interest. Leverage L means your own money
+ * is buyValue / L and the broker funds the rest; interest accrues daily on the funded part.
+ * Each lot is { quantity, price, days }; leverage, rate and current price are shared.
  */
-export function mtfPositionPnl({
-  quantity,
-  avgPrice,
-  currentPrice,
-  leverage,
-  dailyRatePercent,
-  holdingDays,
-}) {
-  const buyValue = quantity * avgPrice;
-  const currentValue = quantity * currentPrice;
-  const ownCapital = buyValue / leverage;
-  const fundedAmount = buyValue - ownCapital;
-  const dailyInterest = (fundedAmount * dailyRatePercent) / 100;
-  const totalInterest = dailyInterest * holdingDays;
-  const grossPnl = currentValue - buyValue;
-  const netPnl = grossPnl - totalInterest;
-  return {
-    buyValue,
-    currentValue,
-    ownCapital,
-    fundedAmount,
-    dailyInterest,
-    totalInterest,
-    grossPnl,
-    netPnl,
-    netReturnOnCapitalPercent: ownCapital > 0 ? (netPnl / ownCapital) * 100 : 0,
-    breakevenPrice: avgPrice + totalInterest / quantity,
+export function mtfLotsPnl({ lots, currentPrice, leverage, dailyRatePercent }) {
+  const rows = lots.map(({ quantity, price, days }) => {
+    const buyValue = quantity * price;
+    const ownCapital = buyValue / leverage;
+    const fundedAmount = buyValue - ownCapital;
+    const dailyInterest = (fundedAmount * dailyRatePercent) / 100;
+    const interest = dailyInterest * days;
+    const grossPnl = quantity * (currentPrice - price);
+    const netPnl = grossPnl - interest;
+    return {
+      quantity,
+      price,
+      days,
+      buyValue,
+      ownCapital,
+      fundedAmount,
+      dailyInterest,
+      interest,
+      grossPnl,
+      netPnl,
+      netPercentOnCapital: ownCapital > 0 ? (netPnl / ownCapital) * 100 : 0,
+    };
+  });
+
+  const sum = (key) => rows.reduce((acc, row) => acc + row[key], 0);
+  const total = {
+    quantity: sum('quantity'),
+    buyValue: sum('buyValue'),
+    ownCapital: sum('ownCapital'),
+    fundedAmount: sum('fundedAmount'),
+    dailyInterest: sum('dailyInterest'),
+    interest: sum('interest'),
+    grossPnl: sum('grossPnl'),
+    netPnl: sum('netPnl'),
   };
+  total.avgPrice = total.quantity > 0 ? total.buyValue / total.quantity : 0;
+  total.grossPercentOnCapital = total.ownCapital > 0 ? (total.grossPnl / total.ownCapital) * 100 : 0;
+  total.netPercentOnCapital = total.ownCapital > 0 ? (total.netPnl / total.ownCapital) * 100 : 0;
+  total.grossPercentOnBuyValue = total.buyValue > 0 ? (total.grossPnl / total.buyValue) * 100 : 0;
+  total.netPercentOnBuyValue = total.buyValue > 0 ? (total.netPnl / total.buyValue) * 100 : 0;
+  return { rows, total };
 }

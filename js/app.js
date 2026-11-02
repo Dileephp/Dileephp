@@ -24,7 +24,7 @@ import {
   stockNeutralAtResistance,
   presentValue,
   mtfInterest,
-  mtfPositionPnl,
+  mtfLotsPnl,
   compoundBreakdown,
   simpleInterestBreakdown,
   goalBreakdown,
@@ -1031,53 +1031,155 @@ function initMtf() {
 }
 
 function initMtfPnl() {
+  let lots = [
+    { id: 1, quantity: 5, price: 11205, days: 56 },
+    { id: 2, quantity: 5, price: 10626.3, days: 25 },
+  ];
+  let lotId = 3;
+  const lotBody = $('mpLotBody');
+
+  function syncLots() {
+    lots = lots.map((lot) => {
+      const row = lotBody.querySelector(`tr[data-id="${lot.id}"]`);
+      if (!row) return lot;
+      return {
+        ...lot,
+        quantity: parseInput(row.querySelector('.mp-qty').value, lot.quantity),
+        price: parseInput(row.querySelector('.mp-price').value, lot.price),
+        days: parseInput(row.querySelector('.mp-days').value, lot.days),
+      };
+    });
+  }
+
+  function renderLots() {
+    lotBody.innerHTML = lots
+      .map(
+        (lot) => `
+      <tr data-id="${lot.id}">
+        <td><input type="number" class="mp-qty" min="1" step="1" value="${lot.quantity}" aria-label="Quantity" /></td>
+        <td><input type="number" class="mp-price" min="0" step="0.05" value="${lot.price}" aria-label="Buy price" /></td>
+        <td><input type="number" class="mp-days" min="1" step="1" value="${lot.days}" aria-label="Days held" /></td>
+        <td><button type="button" class="btn btn-danger btn-sm mp-delete" data-id="${lot.id}" aria-label="Delete transaction">Delete</button></td>
+      </tr>`
+      )
+      .join('');
+
+    lotBody.querySelectorAll('.mp-delete').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncLots();
+        const id = Number(btn.dataset.id);
+        lots = lots.filter((lot) => lot.id !== id);
+        renderLots();
+      });
+    });
+  }
+
+  $('mpAddLot').addEventListener('click', () => {
+    syncLots();
+    lots.push({ id: lotId++, quantity: 1, price: 0, days: 1 });
+    renderLots();
+  });
+
   $('formMtfPnl').addEventListener('submit', (e) => {
     e.preventDefault();
     const resultEl = $('resultMtfPnl');
+    const breakdownEl = $('breakdownMtfPnl');
+    syncLots();
     try {
       const name = $('mpName').value.trim() || 'Position';
-      const quantity = parseInput($('mpQty').value);
-      const leverage = parseInput($('mpLeverage').value);
-      const avgPrice = parseInput($('mpAvg').value);
       const currentPrice = parseInput($('mpCmp').value);
+      const leverage = parseInput($('mpLeverage').value);
       const dailyRatePercent = parseInput($('mpRate').value);
-      const holdingDays = Math.floor(parseInput($('mpDays').value));
 
-      validatePositive(quantity, 'Number of shares');
-      validatePositive(avgPrice, 'Average buy price');
       validatePositive(currentPrice, 'Current price');
       validateRate(dailyRatePercent, 'Interest rate');
       if (leverage < 1) throw new Error('Leverage must be at least 1x.');
-      if (holdingDays < 1) throw new Error('Days held must be at least 1.');
+      if (lots.length === 0) throw new Error('Add at least one buy transaction.');
+      lots.forEach((lot, i) => {
+        validatePositive(lot.quantity, `Transaction ${i + 1} quantity`);
+        validatePositive(lot.price, `Transaction ${i + 1} buy price`);
+        if (Math.floor(lot.days) < 1) throw new Error(`Transaction ${i + 1}: days held must be at least 1.`);
+      });
 
-      const r = mtfPositionPnl({ quantity, avgPrice, currentPrice, leverage, dailyRatePercent, holdingDays });
-      const label = r.netPnl >= 0 ? 'Net profit' : 'Net loss';
+      const { rows, total } = mtfLotsPnl({
+        lots: lots.map((lot) => ({ quantity: lot.quantity, price: lot.price, days: Math.floor(lot.days) })),
+        currentPrice,
+        leverage,
+        dailyRatePercent,
+      });
+
+      const label = total.netPnl >= 0 ? 'Net profit' : 'Net loss';
       const escapedName = name.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-      const grossOnCapital = r.ownCapital > 0 ? (r.grossPnl / r.ownCapital) * 100 : 0;
-      const grossOnBuyValue = (r.grossPnl / r.buyValue) * 100;
-      const netOnBuyValue = (r.netPnl / r.buyValue) * 100;
 
       renderResultCard(
         resultEl,
-        `${escapedName} — ${label} after interest`,
-        `${fc(r.netPnl)} (${formatPercent(r.netReturnOnCapitalPercent, 2)})`,
+        `${escapedName} — total ${label.toLowerCase()} after interest`,
+        `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)})`,
         [
-          { label: 'Buy value', value: fc(r.buyValue) },
-          { label: 'Your own amount', value: fc(r.ownCapital) },
-          { label: 'Broker-funded amount', value: fc(r.fundedAmount) },
-          { label: 'Interest per day', value: fc(r.dailyInterest) },
-          { label: `Interest for ${holdingDays} day${holdingDays === 1 ? '' : 's'}`, value: fc(r.totalInterest), highlight: true },
-          { label: 'Profit / loss before interest', value: `${fc(r.grossPnl)} (${formatPercent(grossOnCapital, 2)} on your amount)` },
-          { label: `${label} after interest`, value: `${fc(r.netPnl)} (${formatPercent(r.netReturnOnCapitalPercent, 2)} on your amount)`, highlight: true },
-          { label: 'Before interest, % of buy value', value: formatPercent(grossOnBuyValue, 2) },
-          { label: 'After interest, % of buy value', value: formatPercent(netOnBuyValue, 2) },
-          { label: 'Break-even price (covers interest)', value: fc(r.breakevenPrice) },
+          { label: 'Total shares', value: formatNumber(total.quantity, 0) },
+          { label: 'Average buy price', value: fc(total.avgPrice) },
+          { label: 'Total buy value', value: fc(total.buyValue) },
+          { label: 'Your own amount', value: fc(total.ownCapital) },
+          { label: 'Broker-funded amount', value: fc(total.fundedAmount) },
+          { label: 'Interest per day (all transactions)', value: fc(total.dailyInterest) },
+          { label: 'Total interest paid', value: fc(total.interest), highlight: true },
+          { label: 'Profit / loss before interest', value: `${fc(total.grossPnl)} (${formatPercent(total.grossPercentOnCapital, 2)} on your amount)` },
+          { label: `${label} after interest`, value: `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)} on your amount)`, highlight: true },
+          { label: 'Before interest, % of buy value', value: formatPercent(total.grossPercentOnBuyValue, 2) },
+          { label: 'After interest, % of buy value', value: formatPercent(total.netPercentOnBuyValue, 2) },
         ]
       );
+
+      breakdownEl.innerHTML = `
+        <h3>Per transaction</h3>
+        <div class="table-scroll table-scroll-daily">
+          <table>
+            <thead>
+              <tr>
+                <th>Qty</th><th>Buy price</th><th>Days</th><th>Buy value</th><th>Own amount</th>
+                <th>Interest</th><th>P&amp;L before interest</th><th>P&amp;L after interest</th><th>After interest %</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (row) => `
+                <tr>
+                  <td>${formatNumber(row.quantity, 0)}</td>
+                  <td>${fc(row.price)}</td>
+                  <td>${row.days}</td>
+                  <td>${fc(row.buyValue)}</td>
+                  <td>${fc(row.ownCapital)}</td>
+                  <td>${fc(row.interest)}</td>
+                  <td>${fc(row.grossPnl)}</td>
+                  <td>${fc(row.netPnl)}</td>
+                  <td>${formatPercent(row.netPercentOnCapital, 2)}</td>
+                </tr>`
+                )
+                .join('')}
+              <tr>
+                <td><strong>${formatNumber(total.quantity, 0)}</strong></td>
+                <td><strong>${fc(total.avgPrice)}</strong></td>
+                <td></td>
+                <td><strong>${fc(total.buyValue)}</strong></td>
+                <td><strong>${fc(total.ownCapital)}</strong></td>
+                <td><strong>${fc(total.interest)}</strong></td>
+                <td><strong>${fc(total.grossPnl)}</strong></td>
+                <td><strong>${fc(total.netPnl)}</strong></td>
+                <td><strong>${formatPercent(total.netPercentOnCapital, 2)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+      show(breakdownEl);
     } catch (err) {
       renderError(resultEl, err.message);
+      hide(breakdownEl);
     }
   });
+
+  renderLots();
 }
 
 function runInitialCalculations() {
