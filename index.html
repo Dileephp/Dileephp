@@ -59,6 +59,9 @@
                 <button type="button" class="menu-item" data-tab="present" role="tab" aria-selected="false">
                   Present Value
                 </button>
+                <button type="button" class="menu-item" data-tab="mtf" role="tab" aria-selected="false">
+                  MTF Interest
+                </button>
               </div>
             </div>
 
@@ -85,6 +88,7 @@
                 <option value="simple">Simple Interest</option>
                 <option value="emi">EMI Calculator</option>
                 <option value="present">Present Value</option>
+                <option value="mtf">MTF Interest</option>
               </optgroup>
               <optgroup label="Averages">
                 <option value="avg-neutral">Neutral at Resistance</option>
@@ -431,6 +435,38 @@
             </form>
             <div id="resultPresent" class="card result-card hidden"></div>
           </div>
+        </section>
+
+        <!-- MTF Interest -->
+        <section id="panel-mtf" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formMtf" class="card form-card">
+              <h2>MTF Interest Calculator</h2>
+              <p class="hint">Buy stocks on broker funding (Margin Trading Facility) and see the interest you pay each day. Interest is charged on the funded amount only, for every calendar day you hold.</p>
+              <div class="field">
+                <label for="mtfPosition">Total stock value you buy</label>
+                <input id="mtfPosition" type="number" min="0" step="1000" value="100000" />
+              </div>
+              <div class="field">
+                <label for="mtfOwn">Your own amount (margin)</label>
+                <input id="mtfOwn" type="number" min="0" step="1000" value="25000" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="mtfRate">Interest rate (% per day)</label>
+                  <input id="mtfRate" type="number" min="0" max="100" step="0.001" value="0.04" />
+                </div>
+                <div class="field">
+                  <label for="mtfDays">Holding period (days)</label>
+                  <input id="mtfDays" type="number" min="1" max="365" step="1" value="30" />
+                </div>
+              </div>
+              <p class="hint">Zerodha charges 0.04% per day (₹40 per lakh). Some brokers charge 0.05% per day — edit the rate to match yours.</p>
+              <button type="submit" class="btn btn-primary">Calculate MTF interest</button>
+            </form>
+            <div id="resultMtf" class="card result-card hidden"></div>
+          </div>
+          <div id="breakdownMtf" class="card table-card hidden"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->

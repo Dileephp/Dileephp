@@ -183,7 +183,7 @@ export function emiWithPrepayments({
         emi: finalPayment - prepay,
         prepay,
         interest,
-        principal: opening,
+        principal: opening - prepay,
         closing: 0,
       });
       balance = 0;
@@ -565,4 +565,28 @@ export function yearBreakdown(params) {
 export function breakdownPeriodLabel(viewMode, period) {
   const labels = { daily: 'Day', weekly: 'Week', monthly: 'Month', yearly: 'Year' };
   return `${labels[viewMode] || 'Period'} ${period}`;
+}
+
+/**
+ * MTF (Margin Trading Facility) interest. The broker funds (positionValue - ownCapital)
+ * and charges a flat daily rate on that funded amount for every calendar day held.
+ */
+export function mtfInterest({ positionValue, ownCapital, dailyRatePercent, holdingDays }) {
+  const fundedAmount = Math.max(positionValue - ownCapital, 0);
+  const dailyInterest = (fundedAmount * dailyRatePercent) / 100;
+  const totalInterest = dailyInterest * holdingDays;
+  const schedule = [];
+  for (let day = 1; day <= holdingDays; day += 1) {
+    schedule.push({ day, interest: dailyInterest, cumulative: dailyInterest * day });
+  }
+  return {
+    fundedAmount,
+    leverage: ownCapital > 0 ? positionValue / ownCapital : 0,
+    dailyInterest,
+    monthlyInterest: dailyInterest * 30,
+    annualRatePercent: dailyRatePercent * 365,
+    totalInterest,
+    breakevenPercent: positionValue > 0 ? (totalInterest / positionValue) * 100 : 0,
+    schedule,
+  };
 }

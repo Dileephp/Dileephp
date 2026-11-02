@@ -20,10 +20,10 @@ import {
   requiredContribution,
   goalAcrossFrequencies,
   simpleInterest,
-  emiCalculator,
   emiWithPrepayments,
   stockNeutralAtResistance,
   presentValue,
+  mtfInterest,
   compoundBreakdown,
   simpleInterestBreakdown,
   goalBreakdown,
@@ -713,28 +713,13 @@ function initEmi() {
         if (p.startMonth <= 0) throw new Error(`Prepayment ${i + 1}: first payment month must be at least 1.`);
       });
 
-      const base = emiCalculator({ loanAmount, annualRatePercent, tenureMonths });
-      const r =
-        activePrepayments.length > 0
-          ? emiWithPrepayments({
-              loanAmount,
-              annualRatePercent,
-              tenureMonths,
-              prepayments: activePrepayments,
-            })
-          : {
-              ...base,
-              emi: base.emi,
-              originalTenureMonths: tenureMonths,
-              actualTenureMonths: tenureMonths,
-              monthsSaved: 0,
-              totalPaid: base.totalPayment,
-              totalPrepaid: 0,
-              interestSaved: 0,
-              schedule: [],
-              originalTotalPayment: base.totalPayment,
-              originalTotalInterest: base.totalInterest,
-            };
+      // Always build the amortization schedule so the month-wise table shows even without prepayments.
+      const r = emiWithPrepayments({
+        loanAmount,
+        annualRatePercent,
+        tenureMonths,
+        prepayments: activePrepayments,
+      });
 
       const hasPrepay = activePrepayments.length > 0;
       const heroLabel = hasPrepay ? 'Loan completes in' : 'Monthly EMI';
@@ -991,11 +976,65 @@ function initPresent() {
   });
 }
 
+function initMtf() {
+  $('formMtf').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const resultEl = $('resultMtf');
+    const breakdownEl = $('breakdownMtf');
+    try {
+      const positionValue = parseInput($('mtfPosition').value);
+      const ownCapital = parseInput($('mtfOwn').value);
+      const dailyRatePercent = parseInput($('mtfRate').value);
+      const holdingDays = Math.floor(parseInput($('mtfDays').value));
+
+      validatePositive(positionValue, 'Stock value');
+      validatePositive(ownCapital, 'Your own amount');
+      validateRate(dailyRatePercent, 'Interest rate');
+      if (ownCapital > positionValue) throw new Error('Your own amount cannot exceed the total stock value.');
+      if (holdingDays < 1 || holdingDays > 365) throw new Error('Holding period must be between 1 and 365 days.');
+
+      const r = mtfInterest({ positionValue, ownCapital, dailyRatePercent, holdingDays });
+
+      renderResultCard(resultEl, 'Interest per day', fc(r.dailyInterest), [
+        { label: 'Total stock value', value: fc(positionValue) },
+        { label: 'Your own amount', value: fc(ownCapital) },
+        { label: 'Broker-funded amount', value: fc(r.fundedAmount) },
+        { label: 'Leverage', value: `${r.leverage.toFixed(2)}×` },
+        { label: 'Interest rate', value: `${formatPercent(dailyRatePercent, 3)} per day (${formatPercent(r.annualRatePercent)} p.a.)` },
+        { label: 'Interest for 30 days', value: fc(r.monthlyInterest) },
+        { label: `Total interest for ${holdingDays} day${holdingDays === 1 ? '' : 's'}`, value: fc(r.totalInterest), highlight: true },
+        { label: 'Price rise needed to break even', value: formatPercent(r.breakevenPercent, 2), highlight: true },
+      ]);
+
+      breakdownEl.innerHTML = `
+        <h3>Day-by-day interest</h3>
+        <div class="table-scroll table-scroll-daily">
+          <table>
+            <thead>
+              <tr><th>Day</th><th>Interest for the day</th><th>Total interest so far</th></tr>
+            </thead>
+            <tbody>
+              ${r.schedule
+                .map((row) => `<tr><td>${row.day}</td><td>${fc(row.interest)}</td><td>${fc(row.cumulative)}</td></tr>`)
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      show(breakdownEl);
+    } catch (err) {
+      renderError(resultEl, err.message);
+      hide(breakdownEl);
+    }
+  });
+}
+
 function runInitialCalculations() {
   $('formCompound').requestSubmit();
   $('formGoal').requestSubmit();
   $('formSimple').requestSubmit();
   $('formEmi').requestSubmit();
+  $('formMtf').requestSubmit();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1007,5 +1046,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initEmi();
   initAvgNeutral();
   initPresent();
+  initMtf();
   runInitialCalculations();
 });
