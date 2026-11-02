@@ -781,3 +781,12 @@ th .tooltip-content::after {
   border-top-color: transparent;
   border-bottom-color: #0b1220;
 }
+
+/* Profit / loss colouring */
+.pnl-profit {
+  color: var(--accent) !important;
+}
+
+.pnl-loss {
+  color: var(--danger) !important;
+}

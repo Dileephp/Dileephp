@@ -1036,6 +1036,8 @@ function initMtfPnl() {
     { id: 2, quantity: 5, price: 10626.3, days: 25 },
   ];
   let lotId = 3;
+  const pnlClass = (v) => (v >= 0 ? 'pnl-profit' : 'pnl-loss');
+  const pnl = (v, text) => `<span class="${pnlClass(v)}">${text}</span>`;
   const lotBody = $('mpLotBody');
 
   function syncLots() {
@@ -1114,7 +1116,7 @@ function initMtfPnl() {
       renderResultCard(
         resultEl,
         `${escapedName} — total ${label.toLowerCase()} after interest`,
-        `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)})`,
+        pnl(total.netPnl, `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)})`),
         [
           { label: 'Total shares', value: formatNumber(total.quantity, 0) },
           { label: 'Average buy price', value: fc(total.avgPrice) },
@@ -1123,10 +1125,10 @@ function initMtfPnl() {
           { label: 'Broker-funded amount', value: fc(total.fundedAmount) },
           { label: 'Interest per day (all transactions)', value: fc(total.dailyInterest) },
           { label: 'Total interest paid', value: fc(total.interest), highlight: true },
-          { label: 'Profit / loss before interest', value: `${fc(total.grossPnl)} (${formatPercent(total.grossPercentOnCapital, 2)} on your amount)` },
-          { label: `${label} after interest`, value: `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)} on your amount)`, highlight: true },
-          { label: 'Before interest, % of buy value', value: formatPercent(total.grossPercentOnBuyValue, 2) },
-          { label: 'After interest, % of buy value', value: formatPercent(total.netPercentOnBuyValue, 2) },
+          { label: 'Profit / loss before interest', value: pnl(total.grossPnl, `${fc(total.grossPnl)} (${formatPercent(total.grossPercentOnCapital, 2)} on your amount)`) },
+          { label: `${label} after interest`, value: pnl(total.netPnl, `${fc(total.netPnl)} (${formatPercent(total.netPercentOnCapital, 2)} on your amount)`), highlight: true },
+          { label: 'Before interest, % of buy value', value: pnl(total.grossPnl, formatPercent(total.grossPercentOnBuyValue, 2)) },
+          { label: 'After interest, % of buy value', value: pnl(total.netPnl, formatPercent(total.netPercentOnBuyValue, 2)) },
         ]
       );
 
@@ -1151,9 +1153,9 @@ function initMtfPnl() {
                   <td>${fc(row.buyValue)}</td>
                   <td>${fc(row.ownCapital)}</td>
                   <td>${fc(row.interest)}</td>
-                  <td>${fc(row.grossPnl)}</td>
-                  <td>${fc(row.netPnl)}</td>
-                  <td>${formatPercent(row.netPercentOnCapital, 2)}</td>
+                  <td class="${pnlClass(row.grossPnl)}">${fc(row.grossPnl)}</td>
+                  <td class="${pnlClass(row.netPnl)}">${fc(row.netPnl)}</td>
+                  <td class="${pnlClass(row.netPnl)}">${formatPercent(row.netPercentOnCapital, 2)}</td>
                 </tr>`
                 )
                 .join('')}
@@ -1164,9 +1166,9 @@ function initMtfPnl() {
                 <td><strong>${fc(total.buyValue)}</strong></td>
                 <td><strong>${fc(total.ownCapital)}</strong></td>
                 <td><strong>${fc(total.interest)}</strong></td>
-                <td><strong>${fc(total.grossPnl)}</strong></td>
-                <td><strong>${fc(total.netPnl)}</strong></td>
-                <td><strong>${formatPercent(total.netPercentOnCapital, 2)}</strong></td>
+                <td class="${pnlClass(total.grossPnl)}"><strong>${fc(total.grossPnl)}</strong></td>
+                <td class="${pnlClass(total.netPnl)}"><strong>${fc(total.netPnl)}</strong></td>
+                <td class="${pnlClass(total.netPnl)}"><strong>${formatPercent(total.netPercentOnCapital, 2)}</strong></td>
               </tr>
             </tbody>
           </table>
