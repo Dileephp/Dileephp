@@ -86,6 +86,17 @@
                 </button>
               </div>
             </div>
+            <div class="menu-group" data-group="stocks">
+              <button type="button" class="menu-group-toggle" aria-expanded="true" aria-controls="menu-stocks">
+                <span>Stocks</span>
+                <span class="menu-chevron" aria-hidden="true"></span>
+              </button>
+              <div id="menu-stocks" class="menu-group-items">
+                <button type="button" class="menu-item" data-tab="screener" role="tab" aria-selected="false">
+                  Chartink Screener
+                </button>
+              </div>
+            </div>
           </nav>
 
           <div class="menu-mobile">
@@ -103,6 +114,9 @@
               </optgroup>
               <optgroup label="Averages">
                 <option value="avg-neutral">Neutral at Resistance</option>
+              </optgroup>
+              <optgroup label="Stocks">
+                <option value="screener">Chartink Screener</option>
               </optgroup>
             </select>
           </div>
@@ -532,6 +546,28 @@
             <div id="resultMtfPnl" class="card result-card hidden"></div>
           </div>
           <div id="breakdownMtfPnl" class="card table-card hidden"></div>
+        </section>
+
+        <!-- Chartink Screener -->
+        <section id="panel-screener" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formScreener" class="card form-card">
+              <h2>Chartink Screener</h2>
+              <p class="hint">Type a screener name to search public screeners on Chartink and see the stocks it lists right now.</p>
+              <div class="field">
+                <label for="scName">Screener name</label>
+                <input id="scName" type="text" maxlength="100" placeholder="e.g. Dilip increase mutual fund holding" value="Dilip increase mutual fund holding" />
+              </div>
+              <details class="field screener-settings">
+                <summary>Proxy server address</summary>
+                <input id="scProxy" type="url" placeholder="https://chartink-proxy.your-name.workers.dev" aria-label="Proxy server address" />
+                <p class="hint">Chartink blocks direct access from websites, so a small proxy fetches the data. Paste the address of your deployed proxy once; it is remembered on this device. See worker/README.md.</p>
+              </details>
+              <button type="submit" class="btn btn-primary">Search screeners</button>
+            </form>
+            <div id="screenerMatches" class="card result-card hidden"></div>
+          </div>
+          <div id="screenerResults" class="card table-card hidden"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->

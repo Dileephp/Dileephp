@@ -57,6 +57,10 @@ function hide(el) {
   el.classList.add('hidden');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
 function renderResultCard(container, heroLabel, heroValue, items) {
   container.innerHTML = `
     <h3>${heroLabel}</h3>
@@ -1184,6 +1188,209 @@ function initMtfPnl() {
   renderLots();
 }
 
+// Address of the deployed Chartink proxy (see worker/README.md). Users can also paste it into the page.
+const DEFAULT_CHARTINK_PROXY = '';
+const PROXY_STORAGE_KEY = 'chartinkProxyUrl';
+
+function readStoredProxy() {
+  try {
+    return localStorage.getItem(PROXY_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function storeProxy(value) {
+  try {
+    localStorage.setItem(PROXY_STORAGE_KEY, value);
+  } catch {
+    // Storage can be blocked (private mode); the address just won't be remembered.
+  }
+}
+
+function initScreener() {
+  const matchesEl = $('screenerMatches');
+  const resultsEl = $('screenerResults');
+  const proxyInput = $('scProxy');
+  proxyInput.value = readStoredProxy() || DEFAULT_CHARTINK_PROXY;
+
+  let stocks = [];
+  let screenerName = '';
+  let screenerSlug = '';
+  let sortKey = 'sr';
+  let sortDir = 1;
+  let filterText = '';
+
+  function proxyBase() {
+    const base = proxyInput.value.trim().replace(/\/+$/, '');
+    if (!base) throw new Error('Paste your proxy server address first (see "Proxy server address" above).');
+    if (!/^https?:\/\//i.test(base)) throw new Error('The proxy address must start with https://');
+    storeProxy(base);
+    return base;
+  }
+
+  async function callProxy(path) {
+    let response;
+    try {
+      response = await fetch(`${proxyBase()}${path}`);
+    } catch (err) {
+      if (err instanceof TypeError) {
+        throw new Error('Could not reach the proxy. Check the address and your internet connection.');
+      }
+      throw err;
+    }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Proxy error (${response.status}).`);
+    return body;
+  }
+
+  function renderStocks() {
+    const needle = filterText.trim().toLowerCase();
+    const visible = stocks
+      .filter((s) => !needle || `${s.nsecode} ${s.name}`.toLowerCase().includes(needle))
+      .sort((a, b) => {
+        const x = a[sortKey];
+        const y = b[sortKey];
+        const cmp = typeof x === 'string' ? x.localeCompare(y) : (x ?? 0) - (y ?? 0);
+        return cmp * sortDir;
+      });
+
+    const gainers = stocks.filter((s) => s.per_chg > 0).length;
+    const losers = stocks.filter((s) => s.per_chg < 0).length;
+    const arrow = (key) => (sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : '');
+    const header = (key, label) =>
+      `<th><button type="button" class="sort-btn" data-sort="${key}">${label}${arrow(key)}</button></th>`;
+
+    resultsEl.innerHTML = `
+      <h3>${escapeHtml(screenerName)}</h3>
+      <p class="hint screener-summary">
+        ${stocks.length} stock${stocks.length === 1 ? '' : 's'} ·
+        <span class="pnl-profit">${gainers} up</span> ·
+        <span class="pnl-loss">${losers} down</span> ·
+        <a href="https://chartink.com/screener/${encodeURIComponent(screenerSlug)}" target="_blank" rel="noopener">Open on Chartink</a>
+      </p>
+      <div class="field screener-filter">
+        <input id="scFilter" type="search" placeholder="Filter by symbol or company" value="${escapeHtml(filterText)}" aria-label="Filter stocks" />
+      </div>
+      ${
+        stocks.length === 0
+          ? '<p class="hint">No stocks match this screener right now. Results depend on live market data, so try again during market hours.</p>'
+          : `<div class="table-scroll table-scroll-daily">
+        <table>
+          <thead>
+            <tr>
+              ${header('sr', '#')}${header('nsecode', 'Symbol')}${header('name', 'Company')}
+              ${header('per_chg', 'Change %')}${header('close', 'Price')}${header('volume', 'Volume')}
+            </tr>
+          </thead>
+          <tbody>
+            ${visible
+              .map(
+                (s) => `
+              <tr>
+                <td>${s.sr}</td>
+                <td><a href="https://chartink.com/stocks/${encodeURIComponent(s.nsecode)}.html" target="_blank" rel="noopener"><strong>${escapeHtml(s.nsecode)}</strong></a></td>
+                <td>${escapeHtml(s.name)}</td>
+                <td class="${s.per_chg >= 0 ? 'pnl-profit' : 'pnl-loss'}">${s.per_chg > 0 ? '+' : ''}${formatNumber(s.per_chg, 2)}%</td>
+                <td>${fc(s.close)}</td>
+                <td>${formatNumber(s.volume, 0)}</td>
+              </tr>`
+              )
+              .join('')}
+          </tbody>
+        </table>
+      </div>`
+      }
+    `;
+    show(resultsEl);
+
+    resultsEl.querySelectorAll('.sort-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.sort;
+        sortDir = sortKey === key ? -sortDir : key === 'per_chg' || key === 'volume' ? -1 : 1;
+        sortKey = key;
+        renderStocks();
+      });
+    });
+
+    const filterInput = $('scFilter');
+    filterInput.addEventListener('input', () => {
+      filterText = filterInput.value;
+      renderStocks();
+      const refocus = $('scFilter');
+      refocus.focus();
+      refocus.setSelectionRange(filterText.length, filterText.length);
+    });
+  }
+
+  async function runScreener(slug, name) {
+    renderResultCard(matchesEl, 'Loading…', '', [{ label: 'Screener', value: escapeHtml(name) }]);
+    hide(resultsEl);
+    try {
+      const data = await callProxy(`/run?slug=${encodeURIComponent(slug)}`);
+      stocks = data.stocks;
+      screenerName = data.name;
+      screenerSlug = data.slug;
+      sortKey = 'sr';
+      sortDir = 1;
+      filterText = '';
+      hide(matchesEl);
+      renderStocks();
+    } catch (err) {
+      renderError(matchesEl, escapeHtml(err.message));
+      hide(resultsEl);
+    }
+  }
+
+  function renderMatches(screeners, term) {
+    matchesEl.innerHTML = `
+      <h3>${screeners.length} screener${screeners.length === 1 ? '' : 's'} found</h3>
+      <p class="hint">Choose one to see its stocks.</p>
+      <div class="screener-list">
+        ${screeners
+          .map(
+            (s, i) => `
+          <button type="button" class="screener-option" data-index="${i}">
+            <span>${escapeHtml(s.name)}</span>
+            <small>Updated ${escapeHtml(String(s.updatedAt || '').slice(0, 10))}</small>
+          </button>`
+          )
+          .join('')}
+      </div>
+    `;
+    show(matchesEl);
+    matchesEl.querySelectorAll('.screener-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const s = screeners[Number(btn.dataset.index)];
+        runScreener(s.slug, s.name);
+      });
+    });
+
+    const exact = screeners.filter((s) => s.name.trim().toLowerCase() === term.toLowerCase());
+    if (exact.length === 1 || screeners.length === 1) {
+      const only = exact[0] || screeners[0];
+      runScreener(only.slug, only.name);
+    }
+  }
+
+  $('formScreener').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const term = $('scName').value.trim();
+    hide(resultsEl);
+    try {
+      if (!term) throw new Error('Enter a screener name.');
+      renderResultCard(matchesEl, 'Searching…', '', [{ label: 'Screener', value: escapeHtml(term) }]);
+      const data = await callProxy(`/search?q=${encodeURIComponent(term)}`);
+      if (data.screeners.length === 0) {
+        throw new Error('No public screener found with that name. Try fewer or different words.');
+      }
+      renderMatches(data.screeners, term);
+    } catch (err) {
+      renderError(matchesEl, escapeHtml(err.message));
+    }
+  });
+}
+
 function runInitialCalculations() {
   $('formCompound').requestSubmit();
   $('formGoal').requestSubmit();
@@ -1204,6 +1411,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initPresent();
   initMtf();
   initMtfPnl();
+  initScreener();
   runInitialCalculations();
 });
 

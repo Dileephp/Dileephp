@@ -811,3 +811,69 @@ th .tooltip-content::after {
 .panel-grid > * {
   min-width: 0;
 }
+
+/* Chartink screener */
+.screener-settings summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.screener-settings input {
+  margin-top: 0.5rem;
+}
+
+.screener-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.screener-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.screener-option:hover,
+.screener-option:focus-visible {
+  border-color: var(--accent);
+}
+
+.screener-option small {
+  color: var(--muted);
+}
+
+.screener-summary {
+  margin: 0.25rem 0 0.75rem;
+}
+
+.screener-summary a,
+.table-card td a {
+  color: var(--accent);
+}
+
+.screener-filter input {
+  width: 100%;
+}
+
+.sort-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
