@@ -662,6 +662,22 @@ th {
   width: 5rem;
 }
 
+.prepay-grid input {
+  min-width: 5.25rem;
+}
+
+@media (max-width: 500px) {
+  .prepay-grid th,
+  .prepay-grid td {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .prepay-grid td:last-child {
+    width: auto;
+  }
+}
+
 .prepay-empty.hidden,
 .prepay-grid.hidden {
   display: none;
@@ -789,4 +805,9 @@ th .tooltip-content::after {
 
 .pnl-loss {
   color: var(--danger) !important;
+}
+
+/* Let grid children shrink so wide tables scroll inside their card, not the page */
+.panel-grid > * {
+  min-width: 0;
 }
