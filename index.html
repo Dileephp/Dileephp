@@ -579,13 +579,16 @@
           <div class="panel-grid">
             <form id="formFundScan" class="card form-card">
               <h2>Fund Holdings Scan</h2>
-              <p class="hint">Gets every stock a fund holds, then checks each one on the candle size you choose:</p>
-              <ol class="hint fs-rules">
-                <li>Previous close &lt; previous open</li>
-                <li>Previous close &lt; previous Supertrend (100, 3)</li>
-                <li>Previous close &gt; previous EMA 9</li>
-                <li>Current high crossed above previous high</li>
-              </ol>
+              <p class="hint">Gets every stock a fund holds, then checks each one against your conditions. A stock matches when all of them are true.</p>
+              <fieldset class="field fs-conditions">
+                <legend>Conditions</legend>
+                <div id="fsRules"></div>
+                <div class="fs-rule-actions">
+                  <button type="button" id="fsAddRule" class="btn btn-secondary">+ Add condition</button>
+                  <button type="button" id="fsResetRules" class="btn btn-secondary">Reset to default</button>
+                </div>
+                <p class="hint">"Crossed above" means above on that candle but not above on the one before. Your conditions are remembered on this device.</p>
+              </fieldset>
               <div class="field">
                 <label for="fsName">Fund name</label>
                 <input id="fsName" type="text" maxlength="150" value="Quant qsif Equity Ex Top 100 Long Short Fund Direct Plan Growth" />

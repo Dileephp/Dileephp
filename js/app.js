@@ -31,7 +31,7 @@ import {
   breakdownPeriodLabel,
 } from './finance.js';
 import { downloadExcel, downloadPDF } from './export.js';
-import { aggregateBars, groupByPeriod, fundScan } from './indicators.js';
+import { aggregateBars, groupByPeriod, evaluateRules, DEFAULT_RULES, RULE_OPERATORS } from './indicators.js';
 
 let currency = 'INR';
 
@@ -1392,14 +1392,95 @@ function initScreener() {
   });
 }
 
-// ---- Fund Holdings Scan: a fund's stocks checked against a 3-hour candle setup ----
+// ---- Fund Holdings Scan: a fund's stocks checked against conditions the user edits ----
 
-const FUND_SCAN_RULES = [
-  { key: 'redCandle', label: 'Prev C &lt; O' },
-  { key: 'belowSupertrend', label: 'Prev C &lt; ST' },
-  { key: 'aboveEma', label: 'Prev C &gt; EMA9' },
-  { key: 'highCrossed', label: 'High ↑ prev' },
-];
+const RULE_STORAGE_KEY = 'fundScanRules';
+const MAX_RULES = 10;
+const RULE_BARS = ['Current', 'Previous', '2 candles ago'];
+const RULE_KINDS = {
+  open: 'Open',
+  high: 'High',
+  low: 'Low',
+  close: 'Close',
+  ema: 'EMA',
+  sma: 'SMA',
+  supertrend: 'Supertrend',
+  value: 'Number',
+};
+const KIND_DEFAULTS = { ema: { p1: 9 }, sma: { p1: 20 }, supertrend: { p1: 100, p2: 3 }, value: { value: 0 } };
+
+function operandLabel(o) {
+  if (o.kind === 'value') return formatNumber(o.value, 2);
+  const what =
+    o.kind === 'ema'
+      ? `EMA ${o.p1}`
+      : o.kind === 'sma'
+        ? `SMA ${o.p1}`
+        : o.kind === 'supertrend'
+          ? `Supertrend (${o.p1}, ${o.p2})`
+          : RULE_KINDS[o.kind].toLowerCase();
+  return `${RULE_BARS[o.bar].toLowerCase()} ${what}`;
+}
+
+function ruleLabel(rule) {
+  const text = `${operandLabel(rule.left)} ${RULE_OPERATORS[rule.op]} ${operandLabel(rule.right)}`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Checks one operand from storage or the editor; returns a clean copy or throws a readable error. */
+function cleanOperand(o, where) {
+  if (!o || !RULE_KINDS[o.kind]) throw new Error(`${where}: choose a value.`);
+  const bar = Number(o.bar);
+  if (![0, 1, 2].includes(bar)) throw new Error(`${where}: choose a candle.`);
+  if (o.kind === 'value') {
+    const value = Number(o.value);
+    if (o.value === '' || !Number.isFinite(value)) throw new Error(`${where}: enter a number.`);
+    return { bar: 0, kind: 'value', value };
+  }
+  const out = { bar, kind: o.kind };
+  if (['ema', 'sma', 'supertrend'].includes(o.kind)) {
+    const p1 = Number(o.p1);
+    if (!Number.isInteger(p1) || p1 < 1 || p1 > 300) throw new Error(`${where}: the period must be a whole number from 1 to 300.`);
+    out.p1 = p1;
+  }
+  if (o.kind === 'supertrend') {
+    const p2 = Number(o.p2);
+    if (!Number.isFinite(p2) || p2 <= 0 || p2 > 20) throw new Error(`${where}: the multiplier must be above 0 and at most 20.`);
+    out.p2 = p2;
+  }
+  return out;
+}
+
+function cleanRules(rules) {
+  if (!Array.isArray(rules) || rules.length === 0) throw new Error('Add at least one condition.');
+  if (rules.length > MAX_RULES) throw new Error(`Use at most ${MAX_RULES} conditions.`);
+  return rules.map((rule, i) => {
+    const where = `Condition ${i + 1}`;
+    if (!RULE_OPERATORS[rule?.op]) throw new Error(`${where}: choose a comparison.`);
+    const left = cleanOperand(rule.left, where);
+    const right = cleanOperand(rule.right, where);
+    if (left.kind === 'value' && right.kind === 'value') throw new Error(`${where}: compare a price or indicator, not two numbers.`);
+    return { left, op: rule.op, right };
+  });
+}
+
+function loadRules() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RULE_STORAGE_KEY) || 'null');
+    if (saved) return cleanRules(saved);
+  } catch {
+    // Missing, blocked or outdated storage: fall back to the default conditions.
+  }
+  return structuredClone(DEFAULT_RULES);
+}
+
+function storeRules(rules) {
+  try {
+    localStorage.setItem(RULE_STORAGE_KEY, JSON.stringify(rules));
+  } catch {
+    // Storage can be blocked (private mode); the conditions just won't be remembered.
+  }
+}
 
 // Candle sizes for the scan. `series` is what the proxy fetches (hourly or daily bars); the page groups them.
 const FUND_SCAN_TIMEFRAMES = {
@@ -1462,7 +1543,84 @@ function initFundScan() {
     renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
   }
 
-  async function scanHolding(h, tf) {
+  // ---- Condition editor ----
+  const rulesEl = $('fsRules');
+  let editorRules = loadRules();
+
+  function operandHtml(o, side) {
+    const isValue = o.kind === 'value';
+    const hasPeriod = ['ema', 'sma', 'supertrend'].includes(o.kind);
+    const opt = (value, label, selected) => `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
+    return `<span class="fs-operand" data-side="${side}">
+      <select data-f="bar" aria-label="Candle"${isValue ? ' hidden' : ''}>${RULE_BARS.map((b, i) => opt(i, b, Number(o.bar) === i)).join('')}</select>
+      <select data-f="kind" aria-label="Value">${Object.entries(RULE_KINDS).map(([k, label]) => opt(k, label, o.kind === k)).join('')}</select>
+      <input data-f="p1" type="number" min="1" max="300" step="1" value="${escapeHtml(o.p1 ?? '')}" aria-label="Period" title="Period"${hasPeriod ? '' : ' hidden'} />
+      <input data-f="p2" type="number" min="0.1" max="20" step="0.1" value="${escapeHtml(o.p2 ?? '')}" aria-label="Multiplier" title="Multiplier"${o.kind === 'supertrend' ? '' : ' hidden'} />
+      <input data-f="value" type="number" step="any" value="${escapeHtml(o.value ?? '')}" aria-label="Number"${isValue ? '' : ' hidden'} />
+    </span>`;
+  }
+
+  function renderRuleEditor() {
+    rulesEl.innerHTML = editorRules
+      .map(
+        (rule, i) => `<div class="fs-rule" data-i="${i}">
+        <span class="fs-rule-num">${i + 1}</span>
+        ${operandHtml(rule.left, 'left')}
+        <select data-f="op" aria-label="Comparison">${Object.entries(RULE_OPERATORS)
+          .map(([k, label]) => `<option value="${k}"${rule.op === k ? ' selected' : ''}>${label}</option>`)
+          .join('')}</select>
+        ${operandHtml(rule.right, 'right')}
+        <button type="button" class="fs-rule-remove" data-remove="${i}" aria-label="Remove condition ${i + 1}"${editorRules.length === 1 ? ' disabled' : ''}>✕</button>
+      </div>`
+      )
+      .join('');
+    $('fsAddRule').disabled = editorRules.length >= MAX_RULES;
+  }
+
+  /** Reads the editor as typed (not yet checked). */
+  function readRuleEditor() {
+    return [...rulesEl.querySelectorAll('.fs-rule')].map((row) => {
+      const side = (name) => {
+        const el = row.querySelector(`.fs-operand[data-side="${name}"]`);
+        const field = (f) => el.querySelector(`[data-f="${f}"]`).value;
+        return { bar: Number(field('bar')), kind: field('kind'), p1: field('p1'), p2: field('p2'), value: field('value') };
+      };
+      return { left: side('left'), op: row.querySelector('[data-f="op"]').value, right: side('right') };
+    });
+  }
+
+  rulesEl.addEventListener('change', (e) => {
+    if (e.target.dataset.f !== 'kind') return;
+    editorRules = readRuleEditor();
+    const row = Number(e.target.closest('.fs-rule').dataset.i);
+    const side = e.target.closest('.fs-operand').dataset.side;
+    Object.assign(editorRules[row][side], KIND_DEFAULTS[e.target.value] || {});
+    renderRuleEditor();
+  });
+
+  rulesEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove]');
+    if (!btn) return;
+    editorRules = readRuleEditor();
+    editorRules.splice(Number(btn.dataset.remove), 1);
+    renderRuleEditor();
+  });
+
+  $('fsAddRule').addEventListener('click', () => {
+    editorRules = readRuleEditor();
+    editorRules.push({ left: { bar: 0, kind: 'close' }, op: 'gt', right: { bar: 0, kind: 'ema', p1: 9 } });
+    renderRuleEditor();
+  });
+
+  $('fsResetRules').addEventListener('click', () => {
+    editorRules = structuredClone(DEFAULT_RULES);
+    storeRules(editorRules);
+    renderRuleEditor();
+  });
+
+  renderRuleEditor();
+
+  async function scanHolding(h, tf, rules) {
     const key = `${tf.series}|${h.searchId || `name:${h.name}`}`;
     if (!candleCache.has(key)) {
       const q = h.searchId ? `sid=${encodeURIComponent(h.searchId)}&name=${encodeURIComponent(h.name)}` : `name=${encodeURIComponent(h.name)}`;
@@ -1470,7 +1628,7 @@ function initFundScan() {
     }
     const data = await candleCache.get(key);
     if (data.error) return { ...h, error: data.error };
-    const scan = fundScan(tf.build(data.bars));
+    const scan = evaluateRules(tf.build(data.bars), rules);
     return { ...h, symbol: data.symbol, exchange: data.exchange, ...scan };
   }
 
@@ -1506,14 +1664,18 @@ function initFundScan() {
             ? ` <small>${escapeHtml(r.instrument)}</small>`
             : '';
       if (r.error) {
-        return `<tr class="fs-muted"><td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td><td colspan="9">${escapeHtml(r.error)}</td></tr>`;
+        return `<tr class="fs-muted"><td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td><td colspan="${fund.rules.length + 2}">${escapeHtml(r.error)}</td></tr>`;
       }
+      const num = (v) => (v === null ? '—' : formatNumber(v, 2));
       return `<tr${r.match ? ' class="fs-match"' : ''}>
         <td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td>
-        <td>${formatNumber(r.previous.o, 2)} / ${formatNumber(r.previous.c, 2)}</td>
-        <td>${formatNumber(r.prevEma, 2)}</td><td>${formatNumber(r.prevSupertrend, 2)}</td>
-        <td>${formatNumber(r.previous.h, 2)} → ${formatNumber(r.current.h, 2)}</td>
-        ${FUND_SCAN_RULES.map((rule) => `<td class="fs-check">${yes(r.checks[rule.key])}</td>`).join('')}
+        <td>${formatNumber(r.current.c, 2)}</td>
+        ${r.results
+          .map(
+            (res, i) =>
+              `<td class="fs-check" title="${escapeHtml(ruleLabel(fund.rules[i]))}">${yes(res.ok)}<small class="fs-vals">${num(res.left)} vs ${num(res.right)}</small></td>`
+          )
+          .join('')}
         <td class="fs-check">${r.match ? '<strong class="pnl-profit">Yes</strong>' : '—'}</td>
       </tr>`;
     };
@@ -1528,15 +1690,16 @@ function initFundScan() {
         <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
         · ${tf.label} candles${latest ? `, current one starts ${escapeHtml(when(latest.t))}` : ''}
       </p>
+      <ol class="hint fs-rules">${fund.rules.map((rule) => `<li>${escapeHtml(ruleLabel(rule))}</li>`).join('')}</ol>
       ${others}
       <label class="fs-toggle"><input type="checkbox" data-showall="${index}" ${fund.showAll ? 'checked' : ''}/> Show all holdings</label>
       ${
         visible.length === 0
-          ? `<p class="hint">No holding meets all four conditions on the latest ${tf.label} candle. Tick "Show all holdings" to see how close each one is.</p>`
+          ? `<p class="hint">No holding meets ${fund.rules.length === 1 ? 'the condition' : `all ${fund.rules.length} conditions`} on the latest ${tf.label} candle. Tick "Show all holdings" to see how close each one is.</p>`
           : `<div class="table-scroll table-scroll-daily"><table>
         <thead><tr>
-          <th>Symbol</th><th>Company</th><th>Weight</th><th>Prev O / C</th><th>Prev EMA 9</th><th>Prev ST (100,3)</th><th>High prev → now</th>
-          ${FUND_SCAN_RULES.map((r) => `<th>${r.label}</th>`).join('')}<th>Match</th>
+          <th>Symbol</th><th>Company</th><th>Weight</th><th>Close</th>
+          ${fund.rules.map((rule, i) => `<th title="${escapeHtml(ruleLabel(rule))}">#${i + 1}</th>`).join('')}<th>Match</th>
         </tr></thead>
         <tbody>${[...visible].sort(order).map(row).join('')}</tbody>
       </table></div>`
@@ -1555,12 +1718,12 @@ function initFundScan() {
     resultsEl.querySelectorAll('[data-alt]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const fund = funds[Number(btn.dataset.fund)];
-        runScan([{ pick: fund.otherMatches[Number(btn.dataset.alt)] }], fund.tfKey);
+        runScan([{ pick: fund.otherMatches[Number(btn.dataset.alt)] }], fund.tfKey, fund.rules);
       });
     });
   }
 
-  async function scanFund(job, n, total, tfKey) {
+  async function scanFund(job, n, total, tfKey, rules) {
     const tf = FUND_SCAN_TIMEFRAMES[tfKey];
     const prefix = total > 1 ? `Fund ${n} of ${total}` : 'Fund';
     let picked = job.pick;
@@ -1575,7 +1738,7 @@ function initFundScan() {
     const fund = await fundProxy(`/fund/holdings?id=${encodeURIComponent(picked.id)}`);
     let done = 0;
     const rows = await mapLimit(fund.holdings, 4, async (h) => {
-      const result = await scanHolding(h, tf);
+      const result = await scanHolding(h, tf, rules);
       done += 1;
       setStatus('Scanning stocks…', [
         [prefix, escapeHtml(fund.name)],
@@ -1583,10 +1746,10 @@ function initFundScan() {
       ]);
       return result;
     });
-    return { ...fund, rows, otherMatches, showAll: false, tfKey };
+    return { ...fund, rows, otherMatches, showAll: false, tfKey, rules };
   }
 
-  async function runScan(jobs, tfKey) {
+  async function runScan(jobs, tfKey, rules) {
     if (running) return;
     running = true;
     funds.length = 0;
@@ -1595,7 +1758,7 @@ function initFundScan() {
     try {
       for (let i = 0; i < jobs.length; i++) {
         try {
-          funds.push(await scanFund(jobs[i], i + 1, jobs.length, tfKey));
+          funds.push(await scanFund(jobs[i], i + 1, jobs.length, tfKey, rules));
           render();
         } catch (err) {
           errors.push(`${escapeHtml(jobs[i].term || jobs[i].pick?.name || '')}: ${escapeHtml(err.message)}`);
@@ -1619,11 +1782,15 @@ function initFundScan() {
     e.preventDefault();
     const file = $('fsFile').files[0];
     try {
+      const rules = cleanRules(readRuleEditor());
+      editorRules = rules;
+      storeRules(rules);
       const names = file ? await readFundNamesFromFile(file) : [$('fsName').value.trim()].filter(Boolean);
       if (!names.length) throw new Error(file ? 'No fund names found in the first column of that file.' : 'Enter a fund name.');
       await runScan(
         names.map((term) => ({ term })),
-        $('fsTimeframe').value
+        $('fsTimeframe').value,
+        rules
       );
     } catch (err) {
       renderError(statusEl, escapeHtml(err.message));

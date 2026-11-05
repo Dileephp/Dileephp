@@ -1,5 +1,5 @@
 // Network-first for the app files so new deploys show up immediately; cache is the offline fallback.
-const CACHE = 'finance-suite-v3';
+const CACHE = 'finance-suite-v4';
 const APP_SHELL = [
   './',
   'index.html',

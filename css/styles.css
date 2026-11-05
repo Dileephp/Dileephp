@@ -908,6 +908,87 @@ th .tooltip-content::after {
   text-align: center;
 }
 
+.fs-vals {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.fs-conditions {
+  border: 0;
+  padding: 0;
+  margin-left: 0;
+  margin-right: 0;
+  min-width: 0;
+}
+
+.fs-conditions legend {
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.fs-rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.fs-operand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.fs-rule-num {
+  min-width: 1.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.field .fs-rule select,
+.field .fs-rule input {
+  width: auto;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.field .fs-rule input[type='number'] {
+  width: 4.75rem;
+}
+
+.fs-rule [hidden] {
+  display: none;
+}
+
+.fs-rule-remove {
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.fs-rule-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fs-rule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .fs-match td {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }

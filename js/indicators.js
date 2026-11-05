@@ -108,39 +108,113 @@ export function supertrend(candles, period, multiplier) {
   return { value, direction };
 }
 
-/**
- * Runs the scan on the latest candle ("current") against the one before it ("previous"):
- *   1. previous close < previous open
- *   2. previous close < previous Supertrend(stPeriod, stMultiplier)
- *   3. previous close > previous EMA(emaPeriod)
- *   4. current high crossed above previous high (Chartink "crossed above": now above, and it was not above one candle earlier)
- */
-export function fundScan(candles, { emaPeriod = 9, stPeriod = 100, stMultiplier = 3 } = {}) {
-  const n = candles.length;
-  if (n < Math.max(stPeriod + 3, emaPeriod + 3)) {
-    return { error: `Not enough price history: ${n} candles, Supertrend (${stPeriod}) needs at least ${stPeriod + 3}.` };
+/** Simple moving average of closes. */
+export function sma(candles, period) {
+  const values = new Array(candles.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    sum += candles[i].c;
+    if (i >= period) sum -= candles[i - period].c;
+    if (i >= period - 1) values[i] = sum / period;
   }
+  return values;
+}
 
-  const emaValues = ema(candles, emaPeriod);
-  const st = supertrend(candles, stPeriod, stMultiplier);
-  const cur = candles[n - 1];
-  const prev = candles[n - 2];
-  const prev2 = candles[n - 3];
-  const prevEma = emaValues[n - 2];
-  const prevSt = st.value[n - 2];
+// ---- Scan rules ----
+// A rule compares two operands: { left, op, right }.
+// An operand is { bar, kind, p1, p2, value }:
+//   bar  0 = current candle, 1 = previous, 2 = two candles ago
+//   kind 'open' | 'high' | 'low' | 'close' | 'ema' (p1 = period) | 'sma' (p1 = period)
+//        | 'supertrend' (p1 = ATR period, p2 = multiplier) | 'value' (a fixed number in `value`)
 
-  const checks = {
-    redCandle: prev.c < prev.o,
-    belowSupertrend: prevSt !== null && prev.c < prevSt,
-    aboveEma: prevEma !== null && prev.c > prevEma,
-    highCrossed: cur.h > prev.h && prev.h <= prev2.h,
+export const RULE_OPERATORS = {
+  gt: '>',
+  lt: '<',
+  gte: '≥',
+  lte: '≤',
+  crossAbove: 'crossed above',
+  crossBelow: 'crossed below',
+};
+
+export const DEFAULT_RULES = [
+  { left: { bar: 1, kind: 'close' }, op: 'lt', right: { bar: 1, kind: 'open' } },
+  { left: { bar: 1, kind: 'close' }, op: 'lt', right: { bar: 1, kind: 'supertrend', p1: 100, p2: 3 } },
+  { left: { bar: 1, kind: 'close' }, op: 'gt', right: { bar: 1, kind: 'ema', p1: 9 } },
+  { left: { bar: 0, kind: 'high' }, op: 'crossAbove', right: { bar: 1, kind: 'high' } },
+];
+
+const PRICE_FIELDS = { open: 'o', high: 'h', low: 'l', close: 'c' };
+
+function seriesFor(candles, operand, cache) {
+  const key = `${operand.kind}:${operand.p1 ?? ''}:${operand.p2 ?? ''}`;
+  if (cache.has(key)) return cache.get(key);
+  let series;
+  if (PRICE_FIELDS[operand.kind]) series = candles.map((c) => c[PRICE_FIELDS[operand.kind]]);
+  else if (operand.kind === 'ema') series = ema(candles, operand.p1);
+  else if (operand.kind === 'sma') series = sma(candles, operand.p1);
+  else if (operand.kind === 'supertrend') series = supertrend(candles, operand.p1, operand.p2).value;
+  else throw new Error(`Unknown value "${operand.kind}".`);
+  cache.set(key, series);
+  return series;
+}
+
+/** Candles an operand needs before its first value exists. */
+function warmup(operand) {
+  if (operand.kind === 'ema' || operand.kind === 'sma') return operand.p1;
+  if (operand.kind === 'supertrend') return operand.p1 + 1;
+  return 1;
+}
+
+/** Fewest candles needed to evaluate every rule (crosses look one candle further back). */
+export function candlesNeeded(rules) {
+  let need = 3;
+  for (const rule of rules) {
+    const extra = rule.op === 'crossAbove' || rule.op === 'crossBelow' ? 1 : 0;
+    for (const side of [rule.left, rule.right]) {
+      if (side.kind !== 'value') need = Math.max(need, warmup(side) + side.bar + extra);
+    }
+  }
+  return need;
+}
+
+/**
+ * Checks every rule on the latest candles.
+ * Returns { results: [{ ok, left, right }], match, current } or { error }.
+ * "A crossed above B" means A > B now and A <= B one candle earlier (Chartink's meaning).
+ */
+export function evaluateRules(candles, rules) {
+  const n = candles.length;
+  const need = candlesNeeded(rules);
+  if (n < need) return { error: `Not enough price history: ${n} candles, these conditions need at least ${need}.` };
+
+  const cache = new Map();
+  const valueOf = (operand, shift) => {
+    if (operand.kind === 'value') return operand.value;
+    return seriesFor(candles, operand, cache)[n - 1 - operand.bar - shift] ?? null;
   };
-  return {
-    current: cur,
-    previous: prev,
-    prevEma,
-    prevSupertrend: prevSt,
-    checks,
-    match: Object.values(checks).every(Boolean),
-  };
+
+  const results = rules.map((rule) => {
+    const left = valueOf(rule.left, 0);
+    const right = valueOf(rule.right, 0);
+    let ok = false;
+    if (left !== null && right !== null) {
+      if (rule.op === 'gt') ok = left > right;
+      else if (rule.op === 'lt') ok = left < right;
+      else if (rule.op === 'gte') ok = left >= right;
+      else if (rule.op === 'lte') ok = left <= right;
+      else {
+        const leftBefore = valueOf(rule.left, 1);
+        const rightBefore = valueOf(rule.right, 1);
+        if (leftBefore !== null && rightBefore !== null) {
+          ok =
+            rule.op === 'crossAbove'
+              ? left > right && leftBefore <= rightBefore
+              : left < right && leftBefore >= rightBefore;
+        }
+      }
+    }
+    return { ok, left, right };
+  });
+
+  return { results, match: results.every((r) => r.ok), current: candles[n - 1] };
 }
