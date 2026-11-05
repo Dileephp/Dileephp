@@ -1,5 +1,7 @@
 // Network-first for the app files so new deploys show up immediately; cache is the offline fallback.
-const CACHE = 'finance-suite-v4';
+// cache: 'no-cache' makes the browser re-check each file with GitHub instead of reusing its 10-minute HTTP cache,
+// which could otherwise pair a new index.html with an old app.js right after a deploy.
+const CACHE = 'finance-suite-v5';
 const APP_SHELL = [
   './',
   'index.html',
@@ -33,7 +35,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE).then((cache) => cache.put(request, copy));
