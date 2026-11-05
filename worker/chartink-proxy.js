@@ -7,7 +7,8 @@
 // Fund holdings scan (data from Groww and Yahoo Finance):
 //   GET /fund/search?q=<fund name>      -> { funds: [{ id, name }] }
 //   GET /fund/holdings?id=<fund id>     -> { id, name, portfolioDate, holdings: [{ name, searchId, instrument, weight }] }
-//   GET /candles?sid=<stock id>&name=.. -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }  (1-hour bars, about 1 year)
+//   GET /candles?sid=<stock id>&name=..&tf=hour|day|week|month -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
+//       tf=hour: 1-hour bars for 1 year; day/week/month: daily bars for 2/5/10 years (the page groups them)
 
 const CHARTINK = 'https://chartink.com';
 const USER_AGENT = 'Mozilla/5.0 (compatible; FinanceSuiteProxy/1.0)';
@@ -186,8 +187,19 @@ async function stockFromSearchId(searchId) {
   return { searchId, nse: h.nseScriptCode, bse: h.bseScriptCode, displayName: h.displayName || h.shortName };
 }
 
-async function yahooBars(ticker) {
-  const res = await fetch(`${YAHOO}/v8/finance/chart/${encodeURIComponent(ticker)}?interval=60m&range=1y`, {
+// Candle sizes the page can ask for. Weekly and monthly candles are built in the page from daily ones,
+// because Yahoo's own weekly/monthly series can switch interval on long ranges and add a duplicate live bar.
+const CANDLE_SERIES = {
+  hour: { interval: '60m', range: '1y' },
+  day: { interval: '1d', range: '2y' },
+  week: { interval: '1d', range: '5y' },
+  month: { interval: '1d', range: '10y' },
+};
+
+const round2 = (v) => Math.round(v * 100) / 100;
+
+async function yahooBars(ticker, { interval, range }) {
+  const res = await fetch(`${YAHOO}/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
   if (!res.ok) return null;
@@ -201,12 +213,12 @@ async function yahooBars(ticker) {
     const h = quote.high[i];
     const l = quote.low[i];
     const c = quote.close[i];
-    if ([o, h, l, c].every((v) => typeof v === 'number')) bars.push({ t, o, h, l, c });
+    if ([o, h, l, c].every((v) => typeof v === 'number')) bars.push({ t, o: round2(o), h: round2(h), l: round2(l), c: round2(c) });
   });
   return bars.length ? bars : null;
 }
 
-async function stockCandles(searchId, name) {
+async function stockCandles(searchId, name, series) {
   let stock = null;
   if (searchId) stock = await stockFromSearchId(searchId).catch(() => null);
   if (!stock?.nse && !stock?.bse && name) stock = await stockFromName(name);
@@ -214,7 +226,7 @@ async function stockCandles(searchId, name) {
 
   const tries = [stock.nse && { symbol: stock.nse, exchange: 'NSE', ticker: `${stock.nse}.NS` }, stock.bse && { symbol: stock.bse, exchange: 'BSE', ticker: `${stock.bse}.BO` }].filter(Boolean);
   for (const t of tries) {
-    const bars = await yahooBars(t.ticker);
+    const bars = await yahooBars(t.ticker, series);
     if (bars) return { body: { symbol: t.symbol, exchange: t.exchange, displayName: stock.displayName, bars } };
   }
   return { error: 'No price data found for this stock.', status: 404 };
@@ -257,7 +269,9 @@ export default {
         const name = (url.searchParams.get('name') || '').slice(0, 150);
         if (sid && !/^[a-z0-9-]{1,200}$/.test(sid)) return json(request, { error: 'Invalid stock.' }, 400);
         if (!sid && !name.trim()) return json(request, { error: 'Give a stock id or name.' }, 400);
-        const result = await stockCandles(sid, name);
+        const series = CANDLE_SERIES[url.searchParams.get('tf') || 'hour'];
+        if (!series) return json(request, { error: 'Invalid timeframe.' }, 400);
+        const result = await stockCandles(sid, name, series);
         return result.error ? json(request, { error: result.error }, result.status) : json(request, result.body);
       }
 

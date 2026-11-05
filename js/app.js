@@ -31,7 +31,7 @@ import {
   breakdownPeriodLabel,
 } from './finance.js';
 import { downloadExcel, downloadPDF } from './export.js';
-import { aggregateBars, fundScan } from './indicators.js';
+import { aggregateBars, groupByPeriod, fundScan } from './indicators.js';
 
 let currency = 'INR';
 
@@ -1401,6 +1401,17 @@ const FUND_SCAN_RULES = [
   { key: 'highCrossed', label: 'High ↑ prev' },
 ];
 
+// Candle sizes for the scan. `series` is what the proxy fetches (hourly or daily bars); the page groups them.
+const FUND_SCAN_TIMEFRAMES = {
+  '1h': { label: '1-hour', series: 'hour', build: (bars) => aggregateBars(bars, 1), tv: '60' },
+  '2h': { label: '2-hour', series: 'hour', build: (bars) => aggregateBars(bars, 2), tv: '120' },
+  '3h': { label: '3-hour', series: 'hour', build: (bars) => aggregateBars(bars, 3), tv: '180' },
+  '4h': { label: '4-hour', series: 'hour', build: (bars) => aggregateBars(bars, 4), tv: '240' },
+  '1d': { label: 'daily', series: 'day', build: (bars) => bars, tv: 'D' },
+  '1w': { label: 'weekly', series: 'week', build: (bars) => groupByPeriod(bars, 'week'), tv: 'W' },
+  '1M': { label: 'monthly', series: 'month', build: (bars) => groupByPeriod(bars, 'month'), tv: 'M' },
+};
+
 async function fundProxy(path) {
   const base = ($('scProxy').value.trim() || readStoredProxy() || DEFAULT_CHARTINK_PROXY).replace(/\/+$/, '');
   if (!base) throw new Error('Paste your proxy server address first (Chartink Screener tab → "Proxy server address").');
@@ -1451,15 +1462,15 @@ function initFundScan() {
     renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
   }
 
-  async function scanHolding(h) {
-    const key = h.searchId || `name:${h.name}`;
+  async function scanHolding(h, tf) {
+    const key = `${tf.series}|${h.searchId || `name:${h.name}`}`;
     if (!candleCache.has(key)) {
       const q = h.searchId ? `sid=${encodeURIComponent(h.searchId)}&name=${encodeURIComponent(h.name)}` : `name=${encodeURIComponent(h.name)}`;
-      candleCache.set(key, fundProxy(`/candles?${q}`).catch((err) => ({ error: err.message })));
+      candleCache.set(key, fundProxy(`/candles?${q}&tf=${tf.series}`).catch((err) => ({ error: err.message })));
     }
     const data = await candleCache.get(key);
     if (data.error) return { ...h, error: data.error };
-    const scan = fundScan(aggregateBars(data.bars, 3));
+    const scan = fundScan(tf.build(data.bars));
     return { ...h, symbol: data.symbol, exchange: data.exchange, ...scan };
   }
 
@@ -1467,9 +1478,16 @@ function initFundScan() {
     const scanned = fund.rows.filter((r) => !r.error);
     const matches = scanned.filter((r) => r.match);
     const visible = fund.showAll ? fund.rows : matches;
+    const tf = FUND_SCAN_TIMEFRAMES[fund.tfKey];
     const yes = (ok) => (ok ? '<span class="pnl-profit">✓</span>' : '<span class="pnl-loss">✗</span>');
+    const intraday = tf.series === 'hour';
     const when = (t) =>
-      new Date(t * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      new Date(t * 1000).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        ...(intraday ? { hour: '2-digit', minute: '2-digit' } : { year: 'numeric' }),
+      }) + (intraday ? ' IST' : '');
     const latest = scanned.find((r) => r.current)?.current;
     const others = fund.otherMatches.length
       ? `<details class="fs-other"><summary>Not the right fund?</summary><div class="screener-list">${fund.otherMatches
@@ -1479,7 +1497,7 @@ function initFundScan() {
 
     const row = (r) => {
       const link = r.symbol
-        ? `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`${r.exchange}:${r.symbol}`)}&interval=180" target="_blank" rel="noopener"><strong>${escapeHtml(r.symbol)}</strong></a>`
+        ? `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`${r.exchange}:${r.symbol}`)}&interval=${tf.tv}" target="_blank" rel="noopener"><strong>${escapeHtml(r.symbol)}</strong></a>`
         : '—';
       const side =
         r.weight < 0
@@ -1508,13 +1526,13 @@ function initFundScan() {
         Portfolio as of ${escapeHtml(String(fund.portfolioDate || '').slice(0, 10) || 'unknown')} ·
         ${fund.rows.length} stock holdings · ${scanned.length} scanned ·
         <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
-        ${latest ? ` · current 3h candle starts ${escapeHtml(when(latest.t))} IST` : ''}
+        · ${tf.label} candles${latest ? `, current one starts ${escapeHtml(when(latest.t))}` : ''}
       </p>
       ${others}
       <label class="fs-toggle"><input type="checkbox" data-showall="${index}" ${fund.showAll ? 'checked' : ''}/> Show all holdings</label>
       ${
         visible.length === 0
-          ? '<p class="hint">No holding meets all four conditions on the latest 3-hour candle. Tick "Show all holdings" to see how close each one is.</p>'
+          ? `<p class="hint">No holding meets all four conditions on the latest ${tf.label} candle. Tick "Show all holdings" to see how close each one is.</p>`
           : `<div class="table-scroll table-scroll-daily"><table>
         <thead><tr>
           <th>Symbol</th><th>Company</th><th>Weight</th><th>Prev O / C</th><th>Prev EMA 9</th><th>Prev ST (100,3)</th><th>High prev → now</th>
@@ -1537,12 +1555,13 @@ function initFundScan() {
     resultsEl.querySelectorAll('[data-alt]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const fund = funds[Number(btn.dataset.fund)];
-        runScan([{ pick: fund.otherMatches[Number(btn.dataset.alt)] }]);
+        runScan([{ pick: fund.otherMatches[Number(btn.dataset.alt)] }], fund.tfKey);
       });
     });
   }
 
-  async function scanFund(job, n, total) {
+  async function scanFund(job, n, total, tfKey) {
+    const tf = FUND_SCAN_TIMEFRAMES[tfKey];
     const prefix = total > 1 ? `Fund ${n} of ${total}` : 'Fund';
     let picked = job.pick;
     let otherMatches = [];
@@ -1556,7 +1575,7 @@ function initFundScan() {
     const fund = await fundProxy(`/fund/holdings?id=${encodeURIComponent(picked.id)}`);
     let done = 0;
     const rows = await mapLimit(fund.holdings, 4, async (h) => {
-      const result = await scanHolding(h);
+      const result = await scanHolding(h, tf);
       done += 1;
       setStatus('Scanning stocks…', [
         [prefix, escapeHtml(fund.name)],
@@ -1564,10 +1583,10 @@ function initFundScan() {
       ]);
       return result;
     });
-    return { ...fund, rows, otherMatches, showAll: false };
+    return { ...fund, rows, otherMatches, showAll: false, tfKey };
   }
 
-  async function runScan(jobs) {
+  async function runScan(jobs, tfKey) {
     if (running) return;
     running = true;
     funds.length = 0;
@@ -1576,7 +1595,7 @@ function initFundScan() {
     try {
       for (let i = 0; i < jobs.length; i++) {
         try {
-          funds.push(await scanFund(jobs[i], i + 1, jobs.length));
+          funds.push(await scanFund(jobs[i], i + 1, jobs.length, tfKey));
           render();
         } catch (err) {
           errors.push(`${escapeHtml(jobs[i].term || jobs[i].pick?.name || '')}: ${escapeHtml(err.message)}`);
@@ -1602,7 +1621,10 @@ function initFundScan() {
     try {
       const names = file ? await readFundNamesFromFile(file) : [$('fsName').value.trim()].filter(Boolean);
       if (!names.length) throw new Error(file ? 'No fund names found in the first column of that file.' : 'Enter a fund name.');
-      await runScan(names.map((term) => ({ term })));
+      await runScan(
+        names.map((term) => ({ term })),
+        $('fsTimeframe').value
+      );
     } catch (err) {
       renderError(statusEl, escapeHtml(err.message));
     }

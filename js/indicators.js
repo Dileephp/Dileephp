@@ -30,6 +30,31 @@ export function aggregateBars(bars, hours = 3) {
   return out;
 }
 
+/**
+ * Groups daily bars into weekly (Monday to Friday) or monthly candles, using the IST calendar date.
+ * period: 'week' | 'month'
+ */
+export function groupByPeriod(bars, period) {
+  const out = [];
+  let key = null;
+  for (const bar of bars) {
+    const date = new Date((bar.t + IST_OFFSET_SECONDS) * 1000);
+    const day = Math.floor((bar.t + IST_OFFSET_SECONDS) / 86400);
+    // 1 Jan 1970 was a Thursday, so (day + 3) / 7 changes on Mondays.
+    const k = period === 'week' ? Math.floor((day + 3) / 7) : date.getUTCFullYear() * 12 + date.getUTCMonth();
+    if (k !== key) {
+      out.push({ t: bar.t, o: bar.o, h: bar.h, l: bar.l, c: bar.c });
+      key = k;
+    } else {
+      const last = out[out.length - 1];
+      last.h = Math.max(last.h, bar.h);
+      last.l = Math.min(last.l, bar.l);
+      last.c = bar.c;
+    }
+  }
+  return out;
+}
+
 /** Exponential moving average of closes, seeded with the simple average of the first `period` closes. */
 export function ema(candles, period) {
   const values = new Array(candles.length).fill(null);
@@ -92,7 +117,9 @@ export function supertrend(candles, period, multiplier) {
  */
 export function fundScan(candles, { emaPeriod = 9, stPeriod = 100, stMultiplier = 3 } = {}) {
   const n = candles.length;
-  if (n < Math.max(stPeriod + 3, emaPeriod + 3)) return { error: `Not enough price history (${n} candles).` };
+  if (n < Math.max(stPeriod + 3, emaPeriod + 3)) {
+    return { error: `Not enough price history: ${n} candles, Supertrend (${stPeriod}) needs at least ${stPeriod + 3}.` };
+  }
 
   const emaValues = ema(candles, emaPeriod);
   const st = supertrend(candles, stPeriod, stMultiplier);

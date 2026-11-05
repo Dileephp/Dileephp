@@ -579,7 +579,7 @@
           <div class="panel-grid">
             <form id="formFundScan" class="card form-card">
               <h2>Fund Holdings Scan</h2>
-              <p class="hint">Gets every stock a fund holds, then checks each one on 3-hour candles:</p>
+              <p class="hint">Gets every stock a fund holds, then checks each one on the candle size you choose:</p>
               <ol class="hint fs-rules">
                 <li>Previous close &lt; previous open</li>
                 <li>Previous close &lt; previous Supertrend (100, 3)</li>
@@ -594,7 +594,19 @@
                 <label for="fsFile">Or an Excel / CSV file with fund names (first column)</label>
                 <input id="fsFile" type="file" accept=".xlsx,.xls,.csv" />
               </div>
-              <p class="hint">Uses the same proxy address as the Chartink Screener tab.</p>
+              <div class="field">
+                <label for="fsTimeframe">Timeframe</label>
+                <select id="fsTimeframe">
+                  <option value="1h">1 hour</option>
+                  <option value="2h">2 hours</option>
+                  <option value="3h" selected>3 hours</option>
+                  <option value="4h">4 hours</option>
+                  <option value="1d">1 day</option>
+                  <option value="1w">1 week</option>
+                  <option value="1M">1 month</option>
+                </select>
+              </div>
+              <p class="hint">Supertrend (100) needs at least 103 candles, so on 1 month a stock must have about 9 years of history.</p>
               <button type="submit" class="btn btn-primary">Scan fund</button>
             </form>
             <div id="fundScanStatus" class="card result-card hidden"></div>
