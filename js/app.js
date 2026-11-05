@@ -1493,20 +1493,34 @@ const FUND_SCAN_TIMEFRAMES = {
   '1M': { label: 'monthly', series: 'month', build: (bars) => groupByPeriod(bars, 'month'), tv: 'M' },
 };
 
+// The address typed or saved on this device is tried first; if it cannot be reached (an old or local address),
+// the built-in address is tried next, and the one that answered is used for the rest of the session.
+let workingProxy = '';
+
 async function fundProxy(path) {
-  const base = ($('scProxy').value.trim() || readStoredProxy() || DEFAULT_CHARTINK_PROXY).replace(/\/+$/, '');
-  if (!base) throw new Error('Paste your proxy server address first (Chartink Screener tab → "Proxy server address").');
-  if (!/^https?:\/\//i.test(base)) throw new Error('The proxy address must start with https://');
-  let response;
-  try {
-    response = await fetch(`${base}${path}`);
-  } catch (err) {
-    if (err instanceof TypeError) throw new Error('Could not reach the proxy. Check the address and your internet connection.');
-    throw err;
+  const chosen = ($('scProxy').value.trim() || readStoredProxy()).replace(/\/+$/, '');
+  const candidates = [...new Set([workingProxy, chosen, DEFAULT_CHARTINK_PROXY].filter((b) => /^https?:\/\//i.test(b)))];
+  if (!candidates.length) throw new Error('Paste your proxy server address first (Chartink Screener tab → "Proxy server address").');
+
+  const unreachable = [];
+  for (const base of candidates) {
+    let response;
+    try {
+      response = await fetch(`${base}${path}`);
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err;
+      unreachable.push(base);
+      continue;
+    }
+    workingProxy = base;
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Proxy error (${response.status}).`);
+    return body;
   }
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Proxy error (${response.status}).`);
-  return body;
+  throw new Error(
+    `Could not reach the proxy (${unreachable.join(', ')}). Check your internet connection; ` +
+      'if it works on Wi-Fi but not mobile data, your mobile network may be blocking it.'
+  );
 }
 
 async function readFundNamesFromFile(file) {
