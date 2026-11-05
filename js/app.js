@@ -31,6 +31,7 @@ import {
   breakdownPeriodLabel,
 } from './finance.js';
 import { downloadExcel, downloadPDF } from './export.js';
+import { aggregateBars, fundScan } from './indicators.js';
 
 let currency = 'INR';
 
@@ -1391,6 +1392,223 @@ function initScreener() {
   });
 }
 
+// ---- Fund Holdings Scan: a fund's stocks checked against a 3-hour candle setup ----
+
+const FUND_SCAN_RULES = [
+  { key: 'redCandle', label: 'Prev C &lt; O' },
+  { key: 'belowSupertrend', label: 'Prev C &lt; ST' },
+  { key: 'aboveEma', label: 'Prev C &gt; EMA9' },
+  { key: 'highCrossed', label: 'High ↑ prev' },
+];
+
+async function fundProxy(path) {
+  const base = ($('scProxy').value.trim() || readStoredProxy() || DEFAULT_CHARTINK_PROXY).replace(/\/+$/, '');
+  if (!base) throw new Error('Paste your proxy server address first (Chartink Screener tab → "Proxy server address").');
+  if (!/^https?:\/\//i.test(base)) throw new Error('The proxy address must start with https://');
+  let response;
+  try {
+    response = await fetch(`${base}${path}`);
+  } catch (err) {
+    if (err instanceof TypeError) throw new Error('Could not reach the proxy. Check the address and your internet connection.');
+    throw err;
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Proxy error (${response.status}).`);
+  return body;
+}
+
+async function readFundNamesFromFile(file) {
+  if (typeof XLSX === 'undefined') throw new Error('The Excel reader did not load. Check your internet connection.');
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+  const names = rows.map((r) => String(r?.[0] ?? '').trim()).filter(Boolean);
+  if (names.length && /^(fund|scheme|fund name|scheme name|name)$/i.test(names[0])) names.shift();
+  return [...new Set(names)].slice(0, 20);
+}
+
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+function initFundScan() {
+  const statusEl = $('fundScanStatus');
+  const resultsEl = $('fundScanResults');
+  const candleCache = new Map();
+  const funds = [];
+  let running = false;
+
+  function setStatus(title, lines) {
+    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
+  }
+
+  async function scanHolding(h) {
+    const key = h.searchId || `name:${h.name}`;
+    if (!candleCache.has(key)) {
+      const q = h.searchId ? `sid=${encodeURIComponent(h.searchId)}&name=${encodeURIComponent(h.name)}` : `name=${encodeURIComponent(h.name)}`;
+      candleCache.set(key, fundProxy(`/candles?${q}`).catch((err) => ({ error: err.message })));
+    }
+    const data = await candleCache.get(key);
+    if (data.error) return { ...h, error: data.error };
+    const scan = fundScan(aggregateBars(data.bars, 3));
+    return { ...h, symbol: data.symbol, exchange: data.exchange, ...scan };
+  }
+
+  function fundCardHtml(fund, index) {
+    const scanned = fund.rows.filter((r) => !r.error);
+    const matches = scanned.filter((r) => r.match);
+    const visible = fund.showAll ? fund.rows : matches;
+    const yes = (ok) => (ok ? '<span class="pnl-profit">✓</span>' : '<span class="pnl-loss">✗</span>');
+    const when = (t) =>
+      new Date(t * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const latest = scanned.find((r) => r.current)?.current;
+    const others = fund.otherMatches.length
+      ? `<details class="fs-other"><summary>Not the right fund?</summary><div class="screener-list">${fund.otherMatches
+          .map((f, i) => `<button type="button" class="screener-option" data-fund="${index}" data-alt="${i}"><span>${escapeHtml(f.name)}</span></button>`)
+          .join('')}</div></details>`
+      : '';
+
+    const row = (r) => {
+      const link = r.symbol
+        ? `<a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`${r.exchange}:${r.symbol}`)}&interval=180" target="_blank" rel="noopener"><strong>${escapeHtml(r.symbol)}</strong></a>`
+        : '—';
+      const side =
+        r.weight < 0
+          ? ' <small class="pnl-loss">short</small>'
+          : r.instrument !== 'Equity'
+            ? ` <small>${escapeHtml(r.instrument)}</small>`
+            : '';
+      if (r.error) {
+        return `<tr class="fs-muted"><td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td><td colspan="9">${escapeHtml(r.error)}</td></tr>`;
+      }
+      return `<tr${r.match ? ' class="fs-match"' : ''}>
+        <td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td>
+        <td>${formatNumber(r.previous.o, 2)} / ${formatNumber(r.previous.c, 2)}</td>
+        <td>${formatNumber(r.prevEma, 2)}</td><td>${formatNumber(r.prevSupertrend, 2)}</td>
+        <td>${formatNumber(r.previous.h, 2)} → ${formatNumber(r.current.h, 2)}</td>
+        ${FUND_SCAN_RULES.map((rule) => `<td class="fs-check">${yes(r.checks[rule.key])}</td>`).join('')}
+        <td class="fs-check">${r.match ? '<strong class="pnl-profit">Yes</strong>' : '—'}</td>
+      </tr>`;
+    };
+    const order = (a, b) =>
+      (b.match ? 1 : 0) - (a.match ? 1 : 0) || (a.error ? 1 : 0) - (b.error ? 1 : 0) || b.weight - a.weight;
+
+    return `<div class="card table-card fs-fund">
+      <h3>${escapeHtml(fund.name)}</h3>
+      <p class="hint screener-summary">
+        Portfolio as of ${escapeHtml(String(fund.portfolioDate || '').slice(0, 10) || 'unknown')} ·
+        ${fund.rows.length} stock holdings · ${scanned.length} scanned ·
+        <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
+        ${latest ? ` · current 3h candle starts ${escapeHtml(when(latest.t))} IST` : ''}
+      </p>
+      ${others}
+      <label class="fs-toggle"><input type="checkbox" data-showall="${index}" ${fund.showAll ? 'checked' : ''}/> Show all holdings</label>
+      ${
+        visible.length === 0
+          ? '<p class="hint">No holding meets all four conditions on the latest 3-hour candle. Tick "Show all holdings" to see how close each one is.</p>'
+          : `<div class="table-scroll table-scroll-daily"><table>
+        <thead><tr>
+          <th>Symbol</th><th>Company</th><th>Weight</th><th>Prev O / C</th><th>Prev EMA 9</th><th>Prev ST (100,3)</th><th>High prev → now</th>
+          ${FUND_SCAN_RULES.map((r) => `<th>${r.label}</th>`).join('')}<th>Match</th>
+        </tr></thead>
+        <tbody>${[...visible].sort(order).map(row).join('')}</tbody>
+      </table></div>`
+      }
+    </div>`;
+  }
+
+  function render() {
+    resultsEl.innerHTML = funds.map(fundCardHtml).join('');
+    resultsEl.querySelectorAll('[data-showall]').forEach((box) => {
+      box.addEventListener('change', () => {
+        funds[Number(box.dataset.showall)].showAll = box.checked;
+        render();
+      });
+    });
+    resultsEl.querySelectorAll('[data-alt]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const fund = funds[Number(btn.dataset.fund)];
+        runScan([{ pick: fund.otherMatches[Number(btn.dataset.alt)] }]);
+      });
+    });
+  }
+
+  async function scanFund(job, n, total) {
+    const prefix = total > 1 ? `Fund ${n} of ${total}` : 'Fund';
+    let picked = job.pick;
+    let otherMatches = [];
+    if (!picked) {
+      setStatus('Searching…', [[prefix, escapeHtml(job.term)]]);
+      const { funds: found } = await fundProxy(`/fund/search?q=${encodeURIComponent(job.term)}`);
+      if (!found.length) throw new Error('No fund found with that name.');
+      [picked, ...otherMatches] = found;
+    }
+    setStatus('Loading holdings…', [[prefix, escapeHtml(picked.name)]]);
+    const fund = await fundProxy(`/fund/holdings?id=${encodeURIComponent(picked.id)}`);
+    let done = 0;
+    const rows = await mapLimit(fund.holdings, 4, async (h) => {
+      const result = await scanHolding(h);
+      done += 1;
+      setStatus('Scanning stocks…', [
+        [prefix, escapeHtml(fund.name)],
+        ['Progress', `${done} of ${fund.holdings.length}`],
+      ]);
+      return result;
+    });
+    return { ...fund, rows, otherMatches, showAll: false };
+  }
+
+  async function runScan(jobs) {
+    if (running) return;
+    running = true;
+    funds.length = 0;
+    resultsEl.innerHTML = '';
+    const errors = [];
+    try {
+      for (let i = 0; i < jobs.length; i++) {
+        try {
+          funds.push(await scanFund(jobs[i], i + 1, jobs.length));
+          render();
+        } catch (err) {
+          errors.push(`${escapeHtml(jobs[i].term || jobs[i].pick?.name || '')}: ${escapeHtml(err.message)}`);
+        }
+      }
+      if (errors.length && !funds.length) {
+        renderError(statusEl, errors.join('<br>'));
+      } else {
+        const total = funds.reduce((sum, f) => sum + f.rows.filter((r) => r.match).length, 0);
+        setStatus(`${total} stock${total === 1 ? '' : 's'} match`, [
+          ['Funds scanned', String(funds.length)],
+          ...errors.map((e) => ['Skipped', e]),
+        ]);
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  $('formFundScan').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = $('fsFile').files[0];
+    try {
+      const names = file ? await readFundNamesFromFile(file) : [$('fsName').value.trim()].filter(Boolean);
+      if (!names.length) throw new Error(file ? 'No fund names found in the first column of that file.' : 'Enter a fund name.');
+      await runScan(names.map((term) => ({ term })));
+    } catch (err) {
+      renderError(statusEl, escapeHtml(err.message));
+    }
+  });
+}
+
 function runInitialCalculations() {
   $('formCompound').requestSubmit();
   $('formGoal').requestSubmit();
@@ -1412,6 +1630,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMtf();
   initMtfPnl();
   initScreener();
+  initFundScan();
   runInitialCalculations();
 });
 

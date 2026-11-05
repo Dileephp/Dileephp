@@ -95,6 +95,9 @@
                 <button type="button" class="menu-item" data-tab="screener" role="tab" aria-selected="false">
                   Chartink Screener
                 </button>
+                <button type="button" class="menu-item" data-tab="fundscan" role="tab" aria-selected="false">
+                  Fund Holdings Scan
+                </button>
               </div>
             </div>
           </nav>
@@ -117,6 +120,7 @@
               </optgroup>
               <optgroup label="Stocks">
                 <option value="screener">Chartink Screener</option>
+                <option value="fundscan">Fund Holdings Scan</option>
               </optgroup>
             </select>
           </div>
@@ -568,6 +572,34 @@
             <div id="screenerMatches" class="card result-card hidden"></div>
           </div>
           <div id="screenerResults" class="card table-card hidden"></div>
+        </section>
+
+        <!-- Fund Holdings Scan -->
+        <section id="panel-fundscan" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formFundScan" class="card form-card">
+              <h2>Fund Holdings Scan</h2>
+              <p class="hint">Gets every stock a fund holds, then checks each one on 3-hour candles:</p>
+              <ol class="hint fs-rules">
+                <li>Previous close &lt; previous open</li>
+                <li>Previous close &lt; previous Supertrend (100, 3)</li>
+                <li>Previous close &gt; previous EMA 9</li>
+                <li>Current high crossed above previous high</li>
+              </ol>
+              <div class="field">
+                <label for="fsName">Fund name</label>
+                <input id="fsName" type="text" maxlength="150" value="Quant qsif Equity Ex Top 100 Long Short Fund Direct Plan Growth" />
+              </div>
+              <div class="field">
+                <label for="fsFile">Or an Excel / CSV file with fund names (first column)</label>
+                <input id="fsFile" type="file" accept=".xlsx,.xls,.csv" />
+              </div>
+              <p class="hint">Uses the same proxy address as the Chartink Screener tab.</p>
+              <button type="submit" class="btn btn-primary">Scan fund</button>
+            </form>
+            <div id="fundScanStatus" class="card result-card hidden"></div>
+          </div>
+          <div id="fundScanResults"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->

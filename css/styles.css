@@ -867,6 +867,55 @@ th .tooltip-content::after {
   width: 100%;
 }
 
+/* Fund holdings scan */
+.fs-rules {
+  margin: 0 0 1rem 1.2rem;
+  padding: 0;
+}
+
+#fundScanResults {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+#fundScanResults:empty {
+  display: none;
+}
+
+.fs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.fs-other {
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.fs-other summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.fs-check {
+  text-align: center;
+}
+
+.fs-match td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fs-muted td {
+  color: var(--muted);
+}
+
 .sort-btn {
   padding: 0;
   border: 0;
