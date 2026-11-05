@@ -983,6 +983,21 @@ th .tooltip-content::after {
   cursor: default;
 }
 
+.fs-saved-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.field .fs-saved-row select {
+  flex: 1 1 12rem;
+  width: auto;
+}
+
+#fsSavedMsg:empty {
+  display: none;
+}
+
 .fs-rule-actions {
   display: flex;
   flex-wrap: wrap;

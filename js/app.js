@@ -1395,6 +1395,8 @@ function initScreener() {
 // ---- Fund Holdings Scan: a fund's stocks checked against conditions the user edits ----
 
 const RULE_STORAGE_KEY = 'fundScanRules';
+const SAVED_SCANS_KEY = 'fundScanSaved';
+const MAX_SAVED_SCANS = 50;
 const MAX_RULES = 10;
 const RULE_BARS = ['Current', 'Previous', '2 candles ago'];
 const RULE_KINDS = {
@@ -1633,6 +1635,149 @@ function initFundScan() {
   });
 
   renderRuleEditor();
+
+  // ---- Saved scans: name + conditions + timeframe + fund, kept on this device; "Copy link" shares one ----
+  const savedEl = $('fsSaved');
+  const savedMsgEl = $('fsSavedMsg');
+
+  function loadSavedScans() {
+    try {
+      const list = JSON.parse(localStorage.getItem(SAVED_SCANS_KEY) || '[]');
+      return Array.isArray(list) ? list.filter((s) => s && typeof s.name === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function storeSavedScans(list) {
+    try {
+      localStorage.setItem(SAVED_SCANS_KEY, JSON.stringify(list));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function renderSavedList(selected = '') {
+    const list = loadSavedScans().sort((a, b) => a.name.localeCompare(b.name));
+    savedEl.innerHTML =
+      `<option value="">${list.length ? 'Choose a saved scan' : 'No saved scans yet'}</option>` +
+      list.map((s) => `<option value="${escapeHtml(s.name)}"${s.name === selected ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+    $('fsDeleteScan').disabled = !selected;
+  }
+
+  /** The scan as it is in the form now; throws if a condition is invalid. */
+  function currentScan(name) {
+    return {
+      name,
+      rules: cleanRules(readRuleEditor()),
+      timeframe: $('fsTimeframe').value,
+      fund: $('fsName').value.trim().slice(0, 150),
+    };
+  }
+
+  /** Puts a scan into the form; throws if it is malformed. */
+  function applyScan(scan) {
+    const rules = cleanRules(scan.rules);
+    editorRules = rules;
+    renderRuleEditor();
+    if (FUND_SCAN_TIMEFRAMES[scan.timeframe]) $('fsTimeframe').value = scan.timeframe;
+    if (typeof scan.fund === 'string' && scan.fund) $('fsName').value = scan.fund.slice(0, 150);
+  }
+
+  function say(message) {
+    savedMsgEl.textContent = message;
+  }
+
+  savedEl.addEventListener('change', () => {
+    const scan = loadSavedScans().find((s) => s.name === savedEl.value);
+    $('fsDeleteScan').disabled = !scan;
+    if (!scan) return;
+    try {
+      applyScan(scan);
+      say(`Loaded "${scan.name}".`);
+    } catch (err) {
+      say(`Could not load "${scan.name}": ${err.message}`);
+    }
+  });
+
+  $('fsSaveScan').addEventListener('click', () => {
+    let scan;
+    try {
+      scan = currentScan('');
+    } catch (err) {
+      say(err.message);
+      return;
+    }
+    const name = (window.prompt('Name this scan', savedEl.value || '') || '').trim().slice(0, 60);
+    if (!name) return;
+    const list = loadSavedScans();
+    const existing = list.findIndex((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (existing >= 0 && !window.confirm(`Replace the saved scan "${list[existing].name}"?`)) return;
+    if (existing < 0 && list.length >= MAX_SAVED_SCANS) {
+      say(`You can keep up to ${MAX_SAVED_SCANS} saved scans. Delete one first.`);
+      return;
+    }
+    scan.name = existing >= 0 ? list[existing].name : name;
+    if (existing >= 0) list[existing] = scan;
+    else list.push(scan);
+    if (!storeSavedScans(list)) {
+      say('This browser is not allowing the page to save (private mode?). Use "Copy link" to keep the scan instead.');
+      return;
+    }
+    renderSavedList(scan.name);
+    say(`Saved "${scan.name}" on this device.`);
+  });
+
+  $('fsDeleteScan').addEventListener('click', () => {
+    const name = savedEl.value;
+    if (!name || !window.confirm(`Delete the saved scan "${name}"?`)) return;
+    storeSavedScans(loadSavedScans().filter((s) => s.name !== name));
+    renderSavedList();
+    say(`Deleted "${name}".`);
+  });
+
+  $('fsShareScan').addEventListener('click', async () => {
+    let link;
+    try {
+      const scan = currentScan(savedEl.value || 'Shared scan');
+      const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(scan))))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      link = `${location.origin}${location.pathname}#scan=${encoded}`;
+    } catch (err) {
+      say(err.message);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      say('Link copied. Open it on another device, or send it to someone, to load this scan.');
+    } catch {
+      window.prompt('Copy this link:', link);
+    }
+  });
+
+  /** Loads a scan shared through "Copy link" (#scan=... in the address). */
+  function loadSharedScan() {
+    const match = location.hash.match(/^#scan=([A-Za-z0-9_-]+)$/);
+    if (!match) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const base64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+      const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
+      const scan = JSON.parse(new TextDecoder().decode(bytes));
+      applyScan(scan);
+      switchCalculator('fundscan');
+      say(`Loaded the shared scan "${String(scan.name || '').slice(0, 60)}". Click Save to keep it on this device.`);
+    } catch {
+      switchCalculator('fundscan');
+      say('That scan link is broken or incomplete.');
+    }
+  }
+
+  renderSavedList();
+  loadSharedScan();
 
   async function scanHolding(h, tf, rules) {
     const key = `${tf.series}|${h.searchId || `name:${h.name}`}`;

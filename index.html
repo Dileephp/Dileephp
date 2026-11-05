@@ -580,6 +580,16 @@
             <form id="formFundScan" class="card form-card">
               <h2>Fund Holdings Scan</h2>
               <p class="hint">Gets every stock a fund holds, then checks each one against your conditions. A stock matches when all of them are true.</p>
+              <div class="field">
+                <label for="fsSaved">Saved scans</label>
+                <div class="fs-saved-row">
+                  <select id="fsSaved"></select>
+                  <button type="button" id="fsSaveScan" class="btn btn-secondary">Save</button>
+                  <button type="button" id="fsDeleteScan" class="btn btn-secondary">Delete</button>
+                  <button type="button" id="fsShareScan" class="btn btn-secondary">Copy link</button>
+                </div>
+                <p id="fsSavedMsg" class="hint" aria-live="polite"></p>
+              </div>
               <fieldset class="field fs-conditions">
                 <legend>Conditions</legend>
                 <div id="fsRules"></div>
