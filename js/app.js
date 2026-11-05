@@ -1190,7 +1190,7 @@ function initMtfPnl() {
 }
 
 // Address of the deployed Chartink proxy (see worker/README.md). Users can also paste it into the page.
-const DEFAULT_CHARTINK_PROXY = '';
+const DEFAULT_CHARTINK_PROXY = 'https://chartink-proxy.dileephp.workers.dev';
 const PROXY_STORAGE_KEY = 'chartinkProxyUrl';
 
 function readStoredProxy() {
