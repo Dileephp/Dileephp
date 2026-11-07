@@ -26,7 +26,7 @@ To avoid pasting it on every device, set `DEFAULT_CHARTINK_PROXY` near the top o
   **Fund Holdings Scan** tab, which builds 3-hour candles from them.
 - `GET /options/chain?index=<index>&expiry=<YYYY-MM-DD>` returns the live index value, its option expiries and the option
   contracts near it (from Groww). `index` is `nifty`, `banknifty`, `finnifty`, `midcpnifty` or `sensex`.
-- `GET /options/candles?index=<index>&id=<contract>&m=1|3|5|30|60` returns candles for one option contract, for the
+- `GET /options/candles?index=<index>&id=<contract>&m=1|3|5|15|30|60|1440` returns candles for one option contract, for the
   **Index Options Scan** section of the Fund Holdings Scan tab.
 
 After updating the Worker code, redeploy it so the Fund Holdings Scan tab and the Index Options Scan can use these endpoints.

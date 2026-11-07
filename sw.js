@@ -1,7 +1,7 @@
 // Network-first for the app files so new deploys show up immediately; cache is the offline fallback.
 // cache: 'no-cache' makes the browser re-check each file with GitHub instead of reusing its 10-minute HTTP cache,
 // which could otherwise pair a new index.html with an old app.js right after a deploy.
-const CACHE = 'finance-suite-v17';
+const CACHE = 'finance-suite-v18';
 const APP_SHELL = [
   './',
   'index.html',

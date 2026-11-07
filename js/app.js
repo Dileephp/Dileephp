@@ -1597,9 +1597,7 @@ const FUND_SCAN_TIMEFRAMES = {
   '15m': { label: '15-minute', series: 'min15', build: (bars) => bars, tv: '15' },
   '30m': { label: '30-minute', series: 'min30', build: (bars) => bars, tv: '30' },
   '1h': { label: '1-hour', series: 'hour', build: (bars) => aggregateBars(bars, 1), tv: '60' },
-  '2h': { label: '2-hour', series: 'hour', build: (bars) => aggregateBars(bars, 2), tv: '120' },
   '3h': { label: '3-hour', series: 'hour', build: (bars) => aggregateBars(bars, 3), tv: '180' },
-  '4h': { label: '4-hour', series: 'hour', build: (bars) => aggregateBars(bars, 4), tv: '240' },
   '1d': { label: 'daily', series: 'day', build: (bars) => bars, tv: 'D' },
   '1w': { label: 'weekly', series: 'week', build: (bars) => groupByPeriod(bars, 'week'), tv: 'W' },
   '1M': { label: 'monthly', series: 'month', build: (bars) => groupByPeriod(bars, 'month'), tv: 'M' },
@@ -2331,9 +2329,14 @@ const OPT_TIMEFRAMES = {
   '1m': { label: '1-minute', m: 1, every: 1, build: (bars) => bars },
   '3m': { label: '3-minute', m: 3, every: 3, build: (bars) => bars },
   '5m': { label: '5-minute', m: 5, every: 5, build: (bars) => bars },
+  '15m': { label: '15-minute', m: 15, every: 15, build: (bars) => bars },
   '30m': { label: '30-minute', m: 30, every: 30, build: (bars) => bars },
   '1h': { label: '1-hour', m: 60, every: 60, build: (bars) => bars },
   '3h': { label: '3-hour', m: 60, every: 180, build: (bars) => aggregateBars(bars, 3) },
+  // every: null -> refreshed once a day, when the market closes
+  '1d': { label: 'daily', m: 1440, every: null, build: (bars) => bars },
+  '1w': { label: 'weekly', m: 1440, every: null, build: (bars) => groupByPeriod(bars, 'week') },
+  '1M': { label: 'monthly', m: 1440, every: null, build: (bars) => groupByPeriod(bars, 'month') },
 };
 
 const IST_MS = 19800000;
@@ -2355,6 +2358,7 @@ function nextCandleClose(nowMs, every) {
   const { minutes, weekday } = istParts(nowMs);
   const today = midnight(nowMs);
   const closeOf = (dayStart, m) => {
+    if (every === null) return at(dayStart, MARKET_CLOSE_MIN);
     const bucketEnd = MARKET_OPEN_MIN + (Math.floor((m - MARKET_OPEN_MIN) / every) + 1) * every;
     return at(dayStart, Math.min(bucketEnd, MARKET_CLOSE_MIN));
   };

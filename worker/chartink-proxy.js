@@ -17,7 +17,7 @@
 //
 // Index options scan (data from Groww). index = nifty | banknifty | finnifty | midcpnifty | sensex
 //   GET /options/chain?index=..&expiry=YYYY-MM-DD -> { index, spot, spotTime, step, expiries, expiry, lotSize, strikes: [{ strike, ce: { id, ltp }, pe }] }
-//   GET /options/candles?index=..&id=<contract>&m=1|3|5|30|60 -> { id, bars: [{ t, o, h, l, c }] }
+//   GET /options/candles?index=..&id=<contract>&m=1|3|5|15|30|60|1440 -> { id, bars: [{ t, o, h, l, c }] }
 
 const CHARTINK = 'https://chartink.com';
 const USER_AGENT = 'Mozilla/5.0 (compatible; FinanceSuiteProxy/1.0)';
@@ -371,7 +371,7 @@ const OPTION_INDICES = {
   sensex: { name: 'Sensex', slug: 'sp-bse-sensex', exchange: 'BSE', spot: 'SENSEX', prefix: 'SENSEX' },
 };
 const CHAIN_WINDOW = 0.05; // only strikes within 5% of the index value are returned
-const OPTION_INTERVALS = { 1: 7, 3: 10, 5: 30, 30: 60, 60: 90 }; // candle minutes -> days of history to ask for
+const OPTION_INTERVALS = { 1: 7, 3: 10, 5: 30, 15: 45, 30: 60, 60: 90, 1440: 365 }; // candle minutes -> days of history to ask for
 
 async function indexSpot(index) {
   const body = await getJson(`${GROWW}/v1/api/stocks_data/v1/accord_points/exchange/${index.exchange}/segment/CASH/latest_indices_ohlc/${index.spot}`);
