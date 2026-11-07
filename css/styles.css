@@ -1199,16 +1199,50 @@ th .tooltip-content::after {
 
 /* Fund and options scans: the form gets the room (its condition rows are wide);
    it takes the full width until a results card appears beside it. */
-#panel-fundscan .panel-grid {
+#panel-fundscan .panel-grid,
+#panel-commonstocks .panel-grid {
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
 }
 
-#panel-fundscan .panel-grid:has(> .result-card.hidden) {
+#panel-fundscan .panel-grid:has(> .result-card.hidden),
+#panel-commonstocks .panel-grid:has(> .result-card.hidden) {
   grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 900px) {
-  #panel-fundscan .panel-grid {
+  #panel-fundscan .panel-grid,
+  #panel-commonstocks .panel-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Common stocks */
+#commonResults {
+  margin-top: 1rem;
+}
+
+#commonResults:empty {
+  display: none;
+}
+
+.cs-legend {
+  margin: 0 0 1rem 1.2rem;
+  padding: 0;
+}
+
+.cs-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.cs-controls .fs-toggle {
+  margin-bottom: 0;
+}
+
+.cs-controls input[type='search'] {
+  flex: 1 1 200px;
+  min-width: 0;
 }

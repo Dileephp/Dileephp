@@ -1802,39 +1802,43 @@ function createScreenerEditor({ containerEl, addBtn, storageKey, initial = null 
   };
 }
 
-function initFundScan() {
-  const statusEl = $('fundScanStatus');
-  const resultsEl = $('fundScanResults');
-  const candleCache = new Map();
-  const funds = [];
-  let running = false;
+// ---- Fund picker shared by the Fund Holdings Scan and Common Stocks: tick funds from the SIF list and/or the
+// top 100 list. Element ids are the prefix + ListType, Picker, PickFilter, PickAll, PickNone, PickList, PickCount. ----
 
-  function setStatus(title, lines) {
-    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
-  }
+const MAX_PICKED = 100;
+let loadedFundLists = null;
+let fundListsRequest = null;
 
-  const ruleEditor = createScreenerEditor({ containerEl: $('fsScreeners'), addBtn: $('fsAddScreener'), storageKey: RULE_STORAGE_KEY });
+/** Loads the SIF and top 100 lists once per page (shared by every picker). */
+async function getFundLists() {
+  if (loadedFundLists) return loadedFundLists;
+  fundListsRequest ||= fundProxy('/fund/lists').finally(() => {
+    fundListsRequest = null;
+  });
+  loadedFundLists = await fundListsRequest;
+  return loadedFundLists;
+}
 
-  // ---- Fund picker: tick funds from the SIF list and/or the top 100 list ----
-  const MAX_PICKED = 100;
+function createFundPicker(prefix, { slowNote = false } = {}) {
+  const el = (name) => $(`${prefix}${name}`);
   const picked = new Map(); // fund id -> name, kept across both lists
-  let fundLists = null;
 
   function updatePickCount() {
     const n = picked.size;
-    $('fsPickCount').textContent = n ? `${n} fund${n === 1 ? '' : 's'} ticked${n > 20 ? ' (many funds can take several minutes)' : ''}.` : '';
+    el('PickCount').textContent = n ? `${n} fund${n === 1 ? '' : 's'} ticked${slowNote && n > 20 ? ' (many funds can take several minutes)' : ''}.` : '';
   }
 
   function renderPickList() {
-    const type = $('fsListType').value;
-    $('fsPicker').hidden = !type;
+    const type = el('ListType').value;
+    el('Picker').hidden = !type;
     if (!type) return;
-    const listEl = $('fsPickList');
+    const listEl = el('PickList');
+    const fundLists = loadedFundLists;
     if (!fundLists) {
       listEl.innerHTML = '<div class="fs-pick-empty">Loading…</div>';
       return;
     }
-    const words = $('fsPickFilter').value.toLowerCase().split(/\s+/).filter(Boolean);
+    const words = el('PickFilter').value.toLowerCase().split(/\s+/).filter(Boolean);
     const shown = fundLists[type]
       .map((f, i) => ({ ...f, rank: i + 1 }))
       .filter((f) => words.every((w) => f.name.toLowerCase().includes(w)));
@@ -1849,31 +1853,31 @@ function initFundScan() {
   }
 
   function shownPickFunds() {
-    const byId = new Map(Object.values(fundLists || {}).flat().map((f) => [f.id, f]));
-    return [...$('fsPickList').querySelectorAll('[data-pick]')].map((box) => byId.get(box.dataset.pick)).filter(Boolean);
+    const byId = new Map(Object.values(loadedFundLists || {}).flat().map((f) => [f.id, f]));
+    return [...el('PickList').querySelectorAll('[data-pick]')].map((box) => byId.get(box.dataset.pick)).filter(Boolean);
   }
 
-  $('fsListType').addEventListener('change', async () => {
+  el('ListType').addEventListener('change', async () => {
     renderPickList();
-    if (!$('fsListType').value || fundLists) return;
+    if (!el('ListType').value || loadedFundLists) return;
     try {
-      fundLists = await fundProxy('/fund/lists');
+      await getFundLists();
     } catch (err) {
-      $('fsPickList').innerHTML = `<div class="fs-pick-empty">Could not load the list: ${escapeHtml(err.message)}</div>`;
+      el('PickList').innerHTML = `<div class="fs-pick-empty">Could not load the list: ${escapeHtml(err.message)}</div>`;
       return;
     }
     renderPickList();
   });
 
-  $('fsPickFilter').addEventListener('input', renderPickList);
+  el('PickFilter').addEventListener('input', renderPickList);
 
-  $('fsPickList').addEventListener('change', (e) => {
+  el('PickList').addEventListener('change', (e) => {
     const box = e.target.closest('[data-pick]');
     if (!box) return;
     const fund = shownPickFunds().find((f) => f.id === box.dataset.pick);
     if (box.checked && picked.size >= MAX_PICKED) {
       box.checked = false;
-      $('fsPickCount').textContent = `You can tick up to ${MAX_PICKED} funds at a time.`;
+      el('PickCount').textContent = `You can tick up to ${MAX_PICKED} funds at a time.`;
       return;
     }
     if (box.checked && fund) picked.set(fund.id, fund.name);
@@ -1881,7 +1885,7 @@ function initFundScan() {
     updatePickCount();
   });
 
-  $('fsPickAll').addEventListener('click', () => {
+  el('PickAll').addEventListener('click', () => {
     for (const f of shownPickFunds()) {
       if (picked.size >= MAX_PICKED) break;
       picked.set(f.id, f.name);
@@ -1890,14 +1894,14 @@ function initFundScan() {
     updatePickCount();
   });
 
-  $('fsPickNone').addEventListener('click', () => {
+  el('PickNone').addEventListener('click', () => {
     picked.clear();
     renderPickList();
     updatePickCount();
   });
 
   /** Puts ticked funds back (from a saved or shared scan). */
-  function setPicked(list) {
+  function set(list) {
     picked.clear();
     if (Array.isArray(list)) {
       list
@@ -1908,6 +1912,27 @@ function initFundScan() {
     renderPickList();
     updatePickCount();
   }
+
+  return { picked, set, refresh: renderPickList };
+}
+
+function initFundScan() {
+  const statusEl = $('fundScanStatus');
+  const resultsEl = $('fundScanResults');
+  const candleCache = new Map();
+  const funds = [];
+  let running = false;
+
+  function setStatus(title, lines) {
+    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
+  }
+
+  const ruleEditor = createScreenerEditor({ containerEl: $('fsScreeners'), addBtn: $('fsAddScreener'), storageKey: RULE_STORAGE_KEY });
+
+  // ---- Fund picker: tick funds from the SIF list and/or the top 100 list ----
+  const fundPicker = createFundPicker('fs', { slowNote: true });
+  const picked = fundPicker.picked;
+  const setPicked = (list) => fundPicker.set(list);
 
   // ---- Saved scans: name + conditions + timeframe + fund, kept on this device; "Copy link" shares one ----
   const savedEl = $('fsSaved');
@@ -2551,6 +2576,196 @@ function initOptionScan() {
   if ($('osAuto').checked) scheduleAuto();
 }
 
+// ---- Common Stocks: the stocks that two or more ticked funds hold, with each fund's weight ----
+
+const COMMON_NAME_NOISE = /\b(ltd|limited|futures?|fut|the|and|co|corp|corporation|inc|india)\b/g;
+// Expiry months on futures lines ("October 2026 Future", "Dec24"); only whole words, so "Maruti" is kept.
+const COMMON_NAME_EXPIRY =
+  /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)(\d{2,4})?\b|\b\d{2,4}\b/g;
+
+/** A company name reduced to its main words, so "Infosys Ltd" and "Infosys Limited October 2026 Future" meet. */
+function stockNameKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\(i\)/g, ' india ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(COMMON_NAME_EXPIRY, ' ')
+    .replace(COMMON_NAME_NOISE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Groups the funds' holdings by stock. Returns [{ key, name, searchId, weights: [per fund or null], count, total }]. */
+function commonHoldings(funds) {
+  const idByName = new Map();
+  funds.forEach((f) => f.holdings.forEach((h) => h.searchId && idByName.set(stockNameKey(h.name), h.searchId)));
+  const stocks = new Map();
+  funds.forEach((f, fi) =>
+    f.holdings.forEach((h) => {
+      const nameKey = stockNameKey(h.name);
+      const searchId = h.searchId || idByName.get(nameKey) || '';
+      const key = searchId || `name:${nameKey}`;
+      let stock = stocks.get(key);
+      if (!stock) {
+        stock = { key, name: h.name, searchId, weights: new Array(funds.length).fill(null) };
+        stocks.set(key, stock);
+      }
+      // Prefer the plain company name over a futures line ("Infosys Ltd" over "Infosys Futures").
+      if (/\bfut/i.test(stock.name) && !/\bfut/i.test(h.name)) stock.name = h.name;
+      stock.weights[fi] = (stock.weights[fi] ?? 0) + (Number(h.weight) || 0);
+    })
+  );
+  return [...stocks.values()].map((st) => {
+    const held = st.weights.filter((w) => w !== null);
+    return { ...st, count: held.length, total: held.reduce((sum, w) => sum + w, 0) };
+  });
+}
+
+function initCommonStocks() {
+  const picker = createFundPicker('cs');
+  const statusEl = $('commonStatus');
+  const resultsEl = $('commonResults');
+  const holdingsCache = new Map();
+  let state = null; // { funds, stocks, minCount, query }
+  let running = false;
+
+  function setStatus(title, lines) {
+    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
+  }
+
+  function visibleStocks() {
+    const words = state.query.toLowerCase().split(/\s+/).filter(Boolean);
+    return state.stocks
+      .filter((st) => st.count >= state.minCount && words.every((w) => st.name.toLowerCase().includes(w)))
+      .sort((a, b) => b.count - a.count || b.total - a.total || a.name.localeCompare(b.name));
+  }
+
+  const pct = (w) => `${formatNumber(w, 2)}%`;
+
+  function tableHtml() {
+    const n = state.funds.length;
+    const rows = visibleStocks();
+    if (!rows.length) return '<p class="hint">No stock matches. Lower "held by" or clear the name filter.</p>';
+    const weightCell = (w) => {
+      if (w === null) return '<td class="fs-skip">—</td>';
+      // Bought and shorted (arbitrage): the net weight rounds to zero.
+      if (Math.abs(w) < 0.005) return '<td title="Long and short positions cancel out">0% <small>hedged</small></td>';
+      return `<td class="${w < 0 ? 'pnl-loss' : ''}">${pct(w)}${w < 0 ? ' <small>short</small>' : ''}</td>`;
+    };
+    return `<p class="hint">${rows.length} stock${rows.length === 1 ? '' : 's'} shown.</p>
+      <div class="table-scroll table-scroll-daily"><table>
+      <thead><tr><th>Stock</th><th>Held by</th><th title="Average weight in the funds that hold it">Avg weight</th>
+        ${state.funds.map((f, i) => `<th title="${escapeHtml(f.name)}">F${i + 1}</th>`).join('')}</tr></thead>
+      <tbody>${rows
+        .map(
+          (st) => `<tr${st.count === n ? ' class="fs-match"' : ''}>
+        <td>${st.searchId ? `<a href="https://groww.in/stocks/${encodeURIComponent(st.searchId)}" target="_blank" rel="noopener"><strong>${escapeHtml(st.name)}</strong></a>` : `<strong>${escapeHtml(st.name)}</strong>`}</td>
+        <td><strong>${st.count}</strong> of ${n}</td>
+        <td>${pct(st.total / st.count)}</td>
+        ${st.weights.map(weightCell).join('')}
+      </tr>`
+        )
+        .join('')}</tbody></table></div>`;
+  }
+
+  function renderTable() {
+    $('csTable').innerHTML = tableHtml();
+  }
+
+  function render() {
+    const n = state.funds.length;
+    const options = Array.from({ length: n }, (_, i) => i + 1)
+      .map((k) => `<option value="${k}"${k === state.minCount ? ' selected' : ''}>${k === n ? `all ${n} funds` : `at least ${k} of ${n} funds`}</option>`)
+      .join('');
+    resultsEl.innerHTML = `<div class="card table-card fs-fund">
+      <h3>Common stocks across ${n} funds</h3>
+      <ol class="hint cs-legend">${state.funds
+        .map((f, i) => `<li><strong>F${i + 1}</strong> ${escapeHtml(f.name)} <small>(${f.holdings.length} stocks, as of ${escapeHtml(String(f.portfolioDate || '').slice(0, 10) || 'unknown')})</small></li>`)
+        .join('')}</ol>
+      <div class="cs-controls">
+        <label class="fs-toggle fs-filter">Held by <select id="csMin">${options}</select></label>
+        <input id="csQuery" type="search" placeholder="Filter by stock name" aria-label="Filter by stock name" value="${escapeHtml(state.query)}" />
+        <button type="button" id="csExcel" class="btn btn-secondary">Download Excel</button>
+      </div>
+      <div id="csTable"></div>
+    </div>`;
+    renderTable();
+    $('csMin').addEventListener('change', (e) => {
+      state.minCount = Number(e.target.value);
+      renderTable();
+    });
+    $('csQuery').addEventListener('input', (e) => {
+      state.query = e.target.value;
+      renderTable();
+    });
+    $('csExcel').addEventListener('click', () => {
+      try {
+        downloadExcel({
+          title: 'Common stocks',
+          headers: ['Stock', 'Held by', 'Avg weight %', ...state.funds.map((f) => f.name)],
+          rows: visibleStocks().map((st) => [
+            st.name,
+            `${st.count} of ${n}`,
+            formatNumber(st.total / st.count, 2),
+            ...st.weights.map((w) => (w === null ? '' : formatNumber(w, 2))),
+          ]),
+          filename: 'common-stocks.xlsx',
+        });
+      } catch (err) {
+        renderError(statusEl, escapeHtml(err.message));
+      }
+    });
+  }
+
+  $('formCommon').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (running) return;
+    const chosen = [...picker.picked].map(([id, name]) => ({ id, name }));
+    if (chosen.length < 2) {
+      renderError(statusEl, 'Tick at least two funds.');
+      return;
+    }
+    running = true;
+    resultsEl.innerHTML = '';
+    const skipped = [];
+    let done = 0;
+    try {
+      const loaded = await mapLimit(chosen, 4, async (f) => {
+        if (!holdingsCache.has(f.id)) {
+          holdingsCache.set(f.id, fundProxy(`/fund/holdings?id=${encodeURIComponent(f.id)}`).catch((err) => ({ error: err.message })));
+        }
+        const fund = await holdingsCache.get(f.id);
+        if (fund.error) holdingsCache.delete(f.id);
+        done += 1;
+        setStatus('Loading holdings…', [['Progress', `${done} of ${chosen.length} funds`]]);
+        if (fund.error || !fund.holdings?.length) {
+          skipped.push(`${escapeHtml(f.name)}: ${escapeHtml(fund.error || 'no stock holdings disclosed')}`);
+          return null;
+        }
+        return { ...fund, name: f.name };
+      });
+      const funds = loaded.filter(Boolean);
+      if (funds.length < 2) throw new Error(`Need holdings for at least two funds.${skipped.length ? `<br>${skipped.join('<br>')}` : ''}`);
+      const stocks = commonHoldings(funds);
+      state = { funds, stocks, minCount: 2, query: '' };
+      const inAll = stocks.filter((st) => st.count === funds.length).length;
+      const inTwo = stocks.filter((st) => st.count >= 2).length;
+      setStatus(`${inTwo} common stock${inTwo === 1 ? '' : 's'}`, [
+        ['Funds compared', String(funds.length)],
+        ['Held by all of them', String(inAll)],
+        ['Held by 2 or more', String(inTwo)],
+        ['Different stocks in total', String(stocks.length)],
+        ...skipped.map((m) => ['Skipped', m]),
+      ]);
+      render();
+    } catch (err) {
+      renderError(statusEl, err.message.includes('<br>') ? err.message : escapeHtml(err.message));
+    } finally {
+      running = false;
+    }
+  });
+}
+
 function runInitialCalculations() {
   $('formCompound').requestSubmit();
   $('formGoal').requestSubmit();
@@ -2574,6 +2789,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initScreener();
   initFundScan();
   initOptionScan();
+  initCommonStocks();
   runInitialCalculations();
 });
 

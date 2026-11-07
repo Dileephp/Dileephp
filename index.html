@@ -98,6 +98,9 @@
                 <button type="button" class="menu-item" data-tab="fundscan" role="tab" aria-selected="false">
                   Fund Holdings Scan
                 </button>
+                <button type="button" class="menu-item" data-tab="commonstocks" role="tab" aria-selected="false">
+                  Common Stocks
+                </button>
               </div>
             </div>
           </nav>
@@ -121,6 +124,7 @@
               <optgroup label="Stocks">
                 <option value="screener">Chartink Screener</option>
                 <option value="fundscan">Fund Holdings Scan</option>
+                <option value="commonstocks">Common Stocks</option>
               </optgroup>
             </select>
           </div>
@@ -701,6 +705,37 @@
             <div id="optScanStatus" class="card result-card hidden"></div>
           </div>
           <div id="optScanResults"></div>
+        </section>
+
+        <!-- Common Stocks -->
+        <section id="panel-commonstocks" class="panel" role="tabpanel" hidden>
+          <div class="panel-grid">
+            <form id="formCommon" class="card form-card">
+              <h2>Common Stocks</h2>
+              <p class="hint">Tick two or more funds to see the stocks they hold in common, and each fund's weight in every stock.</p>
+              <div class="field">
+                <label for="csListType">Fund list (you can tick funds from both lists)</label>
+                <select id="csListType">
+                  <option value="">Choose a list</option>
+                  <option value="sif">All SIFs</option>
+                  <option value="top">Top 100 mutual funds (by assets)</option>
+                </select>
+                <div id="csPicker" class="fs-picker" hidden>
+                  <input id="csPickFilter" type="search" placeholder="Filter this list by name" aria-label="Filter the fund list" />
+                  <div class="fs-pick-actions">
+                    <button type="button" id="csPickAll" class="btn btn-secondary">Tick all shown</button>
+                    <button type="button" id="csPickNone" class="btn btn-secondary">Clear ticks</button>
+                  </div>
+                  <div id="csPickList" class="fs-pick-list" role="group" aria-label="Funds"></div>
+                </div>
+                <p id="csPickCount" class="hint" aria-live="polite"></p>
+              </div>
+              <p class="hint">Uses each fund's latest disclosed portfolio (usually last month's). Futures and short positions count towards the stock.</p>
+              <button type="submit" class="btn btn-primary">Find common stocks</button>
+            </form>
+            <div id="commonStatus" class="card result-card hidden"></div>
+          </div>
+          <div id="commonResults"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->
