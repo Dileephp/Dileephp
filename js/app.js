@@ -2467,7 +2467,10 @@ function initOptionScan() {
 
   function scheduleAuto() {
     stopAuto();
-    if (!$('osAuto').checked) return;
+    if (!$('osAuto').checked) {
+      if (last) renderStatus(); // show "Auto refresh: Off" straight away
+      return;
+    }
     const tf = OPT_TIMEFRAMES[$('osTimeframe').value];
     nextRefreshAt = nextCandleClose(Date.now(), tf.every) + REFRESH_DELAY_MS;
     // Browsers delay long timers in background tabs, so check every 30 s instead of one long wait.
