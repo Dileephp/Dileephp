@@ -1803,13 +1803,13 @@ function createScreenerEditor({ containerEl, addBtn, storageKey, initial = null 
 }
 
 // ---- Fund picker shared by the Fund Holdings Scan and Common Stocks: tick funds from the SIF list and/or the
-// top 100 list. Element ids are the prefix + ListType, Picker, PickFilter, PickAll, PickNone, PickList, PickCount. ----
+// top 200 list. Element ids are the prefix + ListType, Picker, PickFilter, PickAll, PickNone, PickList, PickCount. ----
 
-const MAX_PICKED = 100;
+const MAX_PICKED = 200;
 let loadedFundLists = null;
 let fundListsRequest = null;
 
-/** Loads the SIF and top 100 lists once per page (shared by every picker). */
+/** Loads the SIF and top 200 lists once per page (shared by every picker). */
 async function getFundLists() {
   if (loadedFundLists) return loadedFundLists;
   fundListsRequest ||= fundProxy('/fund/lists').finally(() => {
@@ -1929,7 +1929,7 @@ function initFundScan() {
 
   const ruleEditor = createScreenerEditor({ containerEl: $('fsScreeners'), addBtn: $('fsAddScreener'), storageKey: RULE_STORAGE_KEY });
 
-  // ---- Fund picker: tick funds from the SIF list and/or the top 100 list ----
+  // ---- Fund picker: tick funds from the SIF list and/or the top 200 list ----
   const fundPicker = createFundPicker('fs', { slowNote: true });
   const picked = fundPicker.picked;
   const setPicked = (list) => fundPicker.set(list);

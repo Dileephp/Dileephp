@@ -6,7 +6,7 @@
 //
 // Fund holdings scan (data from Groww and Yahoo Finance):
 //   GET /fund/search?q=<fund name>      -> { funds: [{ id, name }] }
-//   GET /fund/lists                    -> { sif: [{ id, name, type, aum }], top: [...100 largest equity funds] }
+//   GET /fund/lists                    -> { sif: [{ id, name, type, aum }], top: [...200 largest equity and hybrid funds] }
 //   GET /fund/holdings?id=<fund id>     -> { id, name, portfolioDate, holdings: [{ name, searchId, instrument, weight }] }
 //   GET /candles?sid=<stock id>&name=..&tf=hour|day|week|month -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
 //       tf=hour: 1-hour bars for 1 year; day/week/month: daily bars for 2/5/10 years (the page groups them)
@@ -159,8 +159,10 @@ async function fundHoldings(id) {
 }
 
 // Ready-made fund lists for the page: every SIF (Groww files them under "Long-Short" categories) and the
-// 100 largest equity mutual funds by assets. Fund-of-funds are left out (they hold funds, not stocks).
+// 200 largest equity and hybrid mutual funds by assets. Fund-of-funds are left out (they hold funds, not stocks).
 const FUND_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+const TOP_FUND_COUNT = 200;
+const TOP_FUND_CATEGORIES = ['Equity', 'Hybrid'];
 let fundListCache = null;
 
 const cleanFundName = (name) => String(name || '').replace(/\s+/g, ' ').trim();
@@ -183,9 +185,9 @@ async function fundLists() {
   const result = {
     sif: all.filter(isSif).sort((a, b) => a.name.localeCompare(b.name)).map(pick),
     top: all
-      .filter((f) => f.category === 'Equity' && !isSif(f) && !isFof(f))
+      .filter((f) => TOP_FUND_CATEGORIES.includes(f.category) && !isSif(f) && !isFof(f))
       .sort((a, b) => b.aum - a.aum)
-      .slice(0, 100)
+      .slice(0, TOP_FUND_COUNT)
       .map(pick),
   };
   if (!result.sif.length && !result.top.length) throw new Error('Could not load the fund lists.');
