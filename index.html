@@ -591,13 +591,10 @@
                 <p id="fsSavedMsg" class="hint" aria-live="polite"></p>
               </div>
               <fieldset class="field fs-conditions">
-                <legend>Conditions</legend>
-                <div id="fsRules"></div>
-                <div class="fs-rule-actions">
-                  <button type="button" id="fsAddRule" class="btn btn-secondary">+ Add condition</button>
-                  <button type="button" id="fsResetRules" class="btn btn-secondary">Reset to default</button>
-                </div>
-                <p class="hint">"Crossed above" means above on that candle but not above on the one before. Your conditions are remembered on this device.</p>
+                <legend>Screeners</legend>
+                <div id="fsScreeners"></div>
+                <button type="button" id="fsAddScreener" class="btn btn-secondary fs-add-screener">+ Add screener (OR)</button>
+                <p class="hint">A stock matches a screener when all of that screener's conditions are true, and it is listed when it matches Screener 1 OR Screener 2 OR Screener 3. "Crossed above" means above on that candle but not above on the one before. Your screeners are remembered on this device.</p>
               </fieldset>
               <div class="field">
                 <label for="fsName">Fund name</label>
@@ -607,6 +604,24 @@
                 <label for="fsFile">Or an Excel / CSV file with fund names (first column)</label>
                 <input id="fsFile" type="file" accept=".xlsx,.xls,.csv" />
               </div>
+              <div class="field">
+                <label for="fsListType">Or pick funds from a list (you can tick several)</label>
+                <select id="fsListType">
+                  <option value="">Choose a list</option>
+                  <option value="sif">All SIFs</option>
+                  <option value="top">Top 100 mutual funds (by assets)</option>
+                </select>
+                <div id="fsPicker" class="fs-picker" hidden>
+                  <input id="fsPickFilter" type="search" placeholder="Filter this list by name" aria-label="Filter the fund list" />
+                  <div class="fs-pick-actions">
+                    <button type="button" id="fsPickAll" class="btn btn-secondary">Tick all shown</button>
+                    <button type="button" id="fsPickNone" class="btn btn-secondary">Clear ticks</button>
+                  </div>
+                  <div id="fsPickList" class="fs-pick-list" role="group" aria-label="Funds"></div>
+                </div>
+                <p id="fsPickCount" class="hint" aria-live="polite"></p>
+              </div>
+              <p class="hint">Ticked funds and the funds in an uploaded file are all scanned together. The fund name box is used only when nothing is ticked and no file is chosen.</p>
               <div class="field">
                 <label for="fsTimeframe">Timeframe</label>
                 <select id="fsTimeframe">
@@ -625,6 +640,67 @@
             <div id="fundScanStatus" class="card result-card hidden"></div>
           </div>
           <div id="fundScanResults"></div>
+
+          <div class="panel-grid os-section">
+            <form id="formOptScan" class="card form-card">
+              <h2>Index Options Scan</h2>
+              <p class="hint">Checks call (CE) and put (PE) options around the live index value against your screeners. The at-the-money (ATM) strike is the index rounded to the nearest strike (Sensex 81,028 → 81,000), and it moves with the index on every refresh.</p>
+              <div class="field">
+                <label for="osIndex">Index</label>
+                <select id="osIndex">
+                  <option value="nifty">Nifty 50</option>
+                  <option value="banknifty">Bank Nifty</option>
+                  <option value="finnifty">Fin Nifty</option>
+                  <option value="midcpnifty">Midcap Nifty</option>
+                  <option value="sensex" selected>Sensex</option>
+                </select>
+              </div>
+              <fieldset class="field fs-conditions">
+                <legend>Screeners</legend>
+                <div id="osScreeners"></div>
+                <button type="button" id="osAddScreener" class="btn btn-secondary fs-add-screener">+ Add screener (OR)</button>
+                <p class="hint">An option is listed when all conditions of Screener 1, OR of Screener 2, OR of Screener 3 are true on its own candles. These screeners are separate from the fund scan's and are remembered on this device.</p>
+              </fieldset>
+              <fieldset class="field os-checks">
+                <legend>Expiry</legend>
+                <label><input type="checkbox" id="osCurrent" checked /> Current expiry</label>
+                <label><input type="checkbox" id="osNext" /> Next expiry</label>
+                <p class="hint">Nifty 50 and Sensex expire weekly; Bank Nifty, Fin Nifty and Midcap Nifty expire monthly.</p>
+              </fieldset>
+              <fieldset class="field os-checks">
+                <legend>Options</legend>
+                <label><input type="checkbox" id="osCE" checked /> CE (call)</label>
+                <label><input type="checkbox" id="osPE" checked /> PE (put)</label>
+              </fieldset>
+              <div class="field os-strikes">
+                <div>
+                  <label for="osBelow">Strikes below ATM</label>
+                  <input id="osBelow" type="number" min="0" max="10" step="1" value="3" />
+                </div>
+                <div>
+                  <label for="osAbove">Strikes above ATM</label>
+                  <input id="osAbove" type="number" min="0" max="10" step="1" value="4" />
+                </div>
+              </div>
+              <p class="hint">The strike gap comes from the option chain (Nifty 50 and Fin Nifty 50, Bank Nifty and Sensex 100, Midcap Nifty 25). For Sensex, 3 below and 4 above 81,000 checks 80,700 to 81,400.</p>
+              <div class="field">
+                <label for="osTimeframe">Timeframe</label>
+                <select id="osTimeframe">
+                  <option value="1m">1 minute</option>
+                  <option value="3m">3 minutes</option>
+                  <option value="5m" selected>5 minutes</option>
+                  <option value="30m">30 minutes</option>
+                  <option value="1h">1 hour</option>
+                  <option value="3h">3 hours</option>
+                </select>
+              </div>
+              <label class="fs-toggle"><input type="checkbox" id="osAuto" /> Auto refresh when each candle closes</label>
+              <p class="hint">New contracts only have a few days of prices, so long indicators (for example Supertrend 100) need a small timeframe such as 1, 3 or 5 minutes.</p>
+              <button type="submit" class="btn btn-primary" id="osRun">Refresh options</button>
+            </form>
+            <div id="optScanStatus" class="card result-card hidden"></div>
+          </div>
+          <div id="optScanResults"></div>
         </section>
 
         <!-- Stock Average — Neutral at Resistance -->

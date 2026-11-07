@@ -19,11 +19,16 @@ To avoid pasting it on every device, set `DEFAULT_CHARTINK_PROXY` near the top o
 - `GET /search?q=<screener name>` returns matching public screeners.
 - `GET /run?slug=<screener slug>` returns the stocks the screener lists right now.
 - `GET /fund/search?q=<fund name>` returns matching mutual funds / SIFs (from Groww).
+- `GET /fund/lists` returns every SIF and the 100 largest equity mutual funds by assets (from Groww), for the fund picker.
 - `GET /fund/holdings?id=<fund id>` returns the fund's latest disclosed stock holdings, including futures and short positions.
 - `GET /candles?sid=<stock id>&name=<company name>` returns about one year of 1-hour candles (from Yahoo Finance) for the
   **Fund Holdings Scan** tab, which builds 3-hour candles from them.
+- `GET /options/chain?index=<index>&expiry=<YYYY-MM-DD>` returns the live index value, its option expiries and the option
+  contracts near it (from Groww). `index` is `nifty`, `banknifty`, `finnifty`, `midcpnifty` or `sensex`.
+- `GET /options/candles?index=<index>&id=<contract>&m=1|3|5|30|60` returns candles for one option contract, for the
+  **Index Options Scan** section of the Fund Holdings Scan tab.
 
-After updating the Worker code, redeploy it so the Fund Holdings Scan tab can use these endpoints.
+After updating the Worker code, redeploy it so the Fund Holdings Scan tab and the Index Options Scan can use these endpoints.
 
 ## Notes
 

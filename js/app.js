@@ -1466,22 +1466,127 @@ function cleanRules(rules) {
   });
 }
 
-function loadRules() {
+// ---- Screeners: up to 3 groups of conditions. A row matches a group when all its conditions are true,
+// and is listed when it matches any group (Screener 1 OR 2 OR 3). ----
+
+const MAX_SCREENERS = 3;
+const NEW_SCREENER_RULES = [{ left: { bar: 0, kind: 'close' }, op: 'gt', right: { bar: 0, kind: 'ema', p1: 9 } }];
+
+/** Checks a list of screeners (or an older single list of conditions); returns clean copies or throws. */
+function cleanScreeners(list) {
+  if (Array.isArray(list) && list.length && !Array.isArray(list[0])) list = [list];
+  if (!Array.isArray(list) || !list.length) throw new Error('Add at least one screener.');
+  if (list.length > MAX_SCREENERS) throw new Error(`Use at most ${MAX_SCREENERS} screeners.`);
+  return list.map((rules, i) => {
+    try {
+      return cleanRules(rules);
+    } catch (err) {
+      throw new Error(list.length > 1 ? `Screener ${i + 1}, ${err.message.charAt(0).toLowerCase()}${err.message.slice(1)}` : err.message);
+    }
+  });
+}
+
+function loadScreeners(key = RULE_STORAGE_KEY) {
   try {
-    const saved = JSON.parse(localStorage.getItem(RULE_STORAGE_KEY) || 'null');
-    if (saved) return cleanRules(saved);
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved) return cleanScreeners(saved);
   } catch {
     // Missing, blocked or outdated storage: fall back to the default conditions.
   }
-  return structuredClone(DEFAULT_RULES);
+  return [structuredClone(DEFAULT_RULES)];
 }
 
-function storeRules(rules) {
+function storeScreeners(screeners, key = RULE_STORAGE_KEY) {
   try {
-    localStorage.setItem(RULE_STORAGE_KEY, JSON.stringify(rules));
+    localStorage.setItem(key, JSON.stringify(screeners));
   } catch {
-    // Storage can be blocked (private mode); the conditions just won't be remembered.
+    // Storage can be blocked (private mode); the screeners just won't be remembered.
   }
+}
+
+/**
+ * Checks every screener on the candles.
+ * Returns { groups: [evaluateRules result per screener], matched: [screener indexes], match, current } or { error }.
+ * A screener that cannot be checked (too little history) counts as not matching.
+ */
+function evaluateScreeners(candles, screeners) {
+  const groups = screeners.map((rules) => evaluateRules(candles, rules));
+  const checked = groups.filter((g) => !g.error);
+  if (!checked.length) return { error: groups[0].error };
+  const matched = groups.flatMap((g, i) => (!g.error && g.match ? [i] : []));
+  return { groups, matched, match: matched.length > 0, current: checked[0].current };
+}
+
+/** True when a row should be listed for the chosen filter ('any' or a screener index). */
+function rowPasses(r, filter = 'any') {
+  if (r.error) return false;
+  return filter === 'any' ? r.match : r.matched.includes(Number(filter));
+}
+
+const checkMark = (ok) => (ok ? '<span class="pnl-profit">✓</span>' : '<span class="pnl-loss">✗</span>');
+
+/** Table header cells for every condition of every screener, plus the Match column. */
+function screenerHeadHtml(screeners) {
+  const multi = screeners.length > 1;
+  return (
+    screeners
+      .map(
+        (rules, g) =>
+          rules.map((rule, i) => `<th title="${escapeHtml(ruleLabel(rule))}">${multi ? `S${g + 1}·${i + 1}` : `#${i + 1}`}</th>`).join('') +
+          (multi ? `<th title="All conditions of Screener ${g + 1}">S${g + 1}</th>` : '')
+      )
+      .join('') + '<th>Match</th>'
+  );
+}
+
+function screenerColumnCount(screeners) {
+  return screeners.reduce((n, rules) => n + rules.length + (screeners.length > 1 ? 1 : 0), 0) + 1;
+}
+
+/** Result cells for one scanned row (see screenerHeadHtml). */
+function screenerCellsHtml(r, screeners) {
+  const multi = screeners.length > 1;
+  const num = (v) => (v === null ? '—' : formatNumber(v, 2));
+  const groups = r.groups
+    .map((g, gi) => {
+      const rules = screeners[gi];
+      if (g.error) return `<td colspan="${rules.length + (multi ? 1 : 0)}" class="fs-skip"><small>${escapeHtml(g.error)}</small></td>`;
+      return (
+        g.results
+          .map((res, i) => `<td class="fs-check" title="${escapeHtml(ruleLabel(rules[i]))}">${checkMark(res.ok)}<small class="fs-vals">${num(res.left)} vs ${num(res.right)}</small></td>`)
+          .join('') + (multi ? `<td class="fs-check">${g.match ? '<strong class="pnl-profit">✓</strong>' : '—'}</td>` : '')
+      );
+    })
+    .join('');
+  const label = multi ? r.matched.map((i) => `S${i + 1}`).join(', ') : 'Yes';
+  return `${groups}<td class="fs-check">${r.match ? `<strong class="pnl-profit">${label}</strong>` : '—'}</td>`;
+}
+
+/** The screeners written out above a results table. */
+function screenerListHtml(screeners) {
+  const list = (rules) => `<ol class="hint fs-rules">${rules.map((rule) => `<li>${escapeHtml(ruleLabel(rule))}</li>`).join('')}</ol>`;
+  if (screeners.length === 1) return list(screeners[0]);
+  return `<div class="fs-screener-list">${screeners
+    .map((rules, g) => `<div class="hint"><strong>Screener ${g + 1}</strong>${g ? ' <small>(or)</small>' : ''}${list(rules)}</div>`)
+    .join('')}</div>`;
+}
+
+/** "Show: Any screener / Screener 1 / …" for a results table; empty with a single screener. */
+function screenerFilterHtml(screeners, attr, value) {
+  if (screeners.length === 1) return '';
+  const options = ['any', ...screeners.map((_, i) => String(i))]
+    .map((v) => `<option value="${v}"${String(value) === v ? ' selected' : ''}>${v === 'any' ? 'Any screener' : `Screener ${Number(v) + 1}`}</option>`)
+    .join('');
+  return `<label class="fs-toggle fs-filter">Show matches of <select ${attr}>${options}</select></label>`;
+}
+
+function noMatchText(screeners, filter, what, tfLabel) {
+  if (screeners.length > 1) {
+    const which = filter === 'any' ? 'any screener' : `Screener ${Number(filter) + 1}`;
+    return `No ${what} matches ${which} on the latest ${tfLabel} candle.`;
+  }
+  const n = screeners[0].length;
+  return `No ${what} meets ${n === 1 ? 'the condition' : `all ${n} conditions`} on the latest ${tfLabel} candle.`;
 }
 
 // Candle sizes for the scan. `series` is what the proxy fetches (hourly or daily bars); the page groups them.
@@ -1548,20 +1653,9 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-function initFundScan() {
-  const statusEl = $('fundScanStatus');
-  const resultsEl = $('fundScanResults');
-  const candleCache = new Map();
-  const funds = [];
-  let running = false;
-
-  function setStatus(title, lines) {
-    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
-  }
-
-  // ---- Condition editor ----
-  const rulesEl = $('fsRules');
-  let editorRules = loadRules();
+/** A condition editor (rows of "value  comparison  value") inside rulesEl; raw() reads it as typed. */
+function createRuleEditor({ rulesEl, addBtn, resetBtn, initialRules }) {
+  let editorRules = initialRules;
 
   function operandHtml(o, side) {
     const isValue = o.kind === 'value';
@@ -1590,7 +1684,7 @@ function initFundScan() {
       </div>`
       )
       .join('');
-    $('fsAddRule').disabled = editorRules.length >= MAX_RULES;
+    addBtn.disabled = editorRules.length >= MAX_RULES;
   }
 
   /** Reads the editor as typed (not yet checked). */
@@ -1622,19 +1716,198 @@ function initFundScan() {
     renderRuleEditor();
   });
 
-  $('fsAddRule').addEventListener('click', () => {
+  addBtn.addEventListener('click', () => {
     editorRules = readRuleEditor();
     editorRules.push({ left: { bar: 0, kind: 'close' }, op: 'gt', right: { bar: 0, kind: 'ema', p1: 9 } });
     renderRuleEditor();
   });
 
-  $('fsResetRules').addEventListener('click', () => {
+  resetBtn.addEventListener('click', () => {
     editorRules = structuredClone(DEFAULT_RULES);
-    storeRules(editorRules);
     renderRuleEditor();
   });
 
   renderRuleEditor();
+
+  return { raw: readRuleEditor };
+}
+
+/**
+ * Up to 3 condition editors (Screener 1, 2, 3) inside containerEl, remembered on the device under storageKey.
+ * raw() reads them as typed, set() fills them, commit() checks them, remembers them and returns clean screeners.
+ */
+function createScreenerEditor({ containerEl, addBtn, storageKey, initial = null }) {
+  let screeners = initial || loadScreeners(storageKey);
+  let editors = [];
+
+  const readAll = () => editors.map((e) => e.raw());
+
+  function render() {
+    containerEl.innerHTML = screeners
+      .map(
+        (_, g) => `<div class="fs-screener" data-g="${g}">
+        <div class="fs-screener-head">
+          ${g ? '<span class="fs-screener-or">OR</span>' : ''}<strong>Screener ${g + 1}</strong>
+          ${screeners.length > 1 ? `<button type="button" class="btn btn-secondary fs-screener-remove" data-remove-screener="${g}">Remove screener</button>` : ''}
+        </div>
+        <div class="fs-screener-rules"></div>
+        <div class="fs-rule-actions">
+          <button type="button" class="btn btn-secondary" data-add-rule>+ Add condition</button>
+          <button type="button" class="btn btn-secondary" data-reset-rules>Reset to default</button>
+        </div>
+      </div>`
+      )
+      .join('');
+    editors = screeners.map((rules, g) => {
+      const el = containerEl.querySelector(`[data-g="${g}"]`);
+      return createRuleEditor({
+        rulesEl: el.querySelector('.fs-screener-rules'),
+        addBtn: el.querySelector('[data-add-rule]'),
+        resetBtn: el.querySelector('[data-reset-rules]'),
+        initialRules: rules,
+      });
+    });
+    addBtn.disabled = screeners.length >= MAX_SCREENERS;
+  }
+
+  containerEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove-screener]');
+    if (!btn) return;
+    screeners = readAll();
+    screeners.splice(Number(btn.dataset.removeScreener), 1);
+    render();
+  });
+
+  addBtn.addEventListener('click', () => {
+    screeners = readAll();
+    if (screeners.length >= MAX_SCREENERS) return;
+    screeners.push(structuredClone(NEW_SCREENER_RULES));
+    render();
+  });
+
+  render();
+
+  return {
+    raw: readAll,
+    set(list) {
+      screeners = list;
+      render();
+    },
+    commit() {
+      const clean = cleanScreeners(readAll());
+      screeners = clean;
+      storeScreeners(clean, storageKey);
+      return clean;
+    },
+  };
+}
+
+function initFundScan() {
+  const statusEl = $('fundScanStatus');
+  const resultsEl = $('fundScanResults');
+  const candleCache = new Map();
+  const funds = [];
+  let running = false;
+
+  function setStatus(title, lines) {
+    renderResultCard(statusEl, title, '', lines.map(([label, value]) => ({ label, value })));
+  }
+
+  const ruleEditor = createScreenerEditor({ containerEl: $('fsScreeners'), addBtn: $('fsAddScreener'), storageKey: RULE_STORAGE_KEY });
+
+  // ---- Fund picker: tick funds from the SIF list and/or the top 100 list ----
+  const MAX_PICKED = 100;
+  const picked = new Map(); // fund id -> name, kept across both lists
+  let fundLists = null;
+
+  function updatePickCount() {
+    const n = picked.size;
+    $('fsPickCount').textContent = n ? `${n} fund${n === 1 ? '' : 's'} ticked${n > 20 ? ' (many funds can take several minutes)' : ''}.` : '';
+  }
+
+  function renderPickList() {
+    const type = $('fsListType').value;
+    $('fsPicker').hidden = !type;
+    if (!type) return;
+    const listEl = $('fsPickList');
+    if (!fundLists) {
+      listEl.innerHTML = '<div class="fs-pick-empty">Loading…</div>';
+      return;
+    }
+    const words = $('fsPickFilter').value.toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = fundLists[type]
+      .map((f, i) => ({ ...f, rank: i + 1 }))
+      .filter((f) => words.every((w) => f.name.toLowerCase().includes(w)));
+    listEl.innerHTML = shown.length
+      ? shown
+          .map(
+            (f) => `<label class="fs-pick-item"><input type="checkbox" data-pick="${escapeHtml(f.id)}"${picked.has(f.id) ? ' checked' : ''} />
+            <span>${type === 'top' ? `${f.rank}. ` : ''}${escapeHtml(f.name)}<small>${escapeHtml(f.type)} · ₹${formatNumber(f.aum, 0)} Cr</small></span></label>`
+          )
+          .join('')
+      : '<div class="fs-pick-empty">No fund in this list matches that name.</div>';
+  }
+
+  function shownPickFunds() {
+    const byId = new Map(Object.values(fundLists || {}).flat().map((f) => [f.id, f]));
+    return [...$('fsPickList').querySelectorAll('[data-pick]')].map((box) => byId.get(box.dataset.pick)).filter(Boolean);
+  }
+
+  $('fsListType').addEventListener('change', async () => {
+    renderPickList();
+    if (!$('fsListType').value || fundLists) return;
+    try {
+      fundLists = await fundProxy('/fund/lists');
+    } catch (err) {
+      $('fsPickList').innerHTML = `<div class="fs-pick-empty">Could not load the list: ${escapeHtml(err.message)}</div>`;
+      return;
+    }
+    renderPickList();
+  });
+
+  $('fsPickFilter').addEventListener('input', renderPickList);
+
+  $('fsPickList').addEventListener('change', (e) => {
+    const box = e.target.closest('[data-pick]');
+    if (!box) return;
+    const fund = shownPickFunds().find((f) => f.id === box.dataset.pick);
+    if (box.checked && picked.size >= MAX_PICKED) {
+      box.checked = false;
+      $('fsPickCount').textContent = `You can tick up to ${MAX_PICKED} funds at a time.`;
+      return;
+    }
+    if (box.checked && fund) picked.set(fund.id, fund.name);
+    else picked.delete(box.dataset.pick);
+    updatePickCount();
+  });
+
+  $('fsPickAll').addEventListener('click', () => {
+    for (const f of shownPickFunds()) {
+      if (picked.size >= MAX_PICKED) break;
+      picked.set(f.id, f.name);
+    }
+    renderPickList();
+    updatePickCount();
+  });
+
+  $('fsPickNone').addEventListener('click', () => {
+    picked.clear();
+    renderPickList();
+    updatePickCount();
+  });
+
+  /** Puts ticked funds back (from a saved or shared scan). */
+  function setPicked(list) {
+    picked.clear();
+    if (Array.isArray(list)) {
+      list
+        .filter((f) => f && /^[a-z0-9-]{1,200}$/.test(f.id) && typeof f.name === 'string')
+        .slice(0, MAX_PICKED)
+        .forEach((f) => picked.set(f.id, f.name.slice(0, 150)));
+    }
+    renderPickList();
+    updatePickCount();
+  }
 
   // ---- Saved scans: name + conditions + timeframe + fund, kept on this device; "Copy link" shares one ----
   const savedEl = $('fsSaved');
@@ -1668,21 +1941,23 @@ function initFundScan() {
 
   /** The scan as it is in the form now; throws if a condition is invalid. */
   function currentScan(name) {
+    const screeners = cleanScreeners(ruleEditor.raw());
     return {
       name,
-      rules: cleanRules(readRuleEditor()),
+      screeners,
+      rules: screeners[0], // read by older versions of the page
       timeframe: $('fsTimeframe').value,
       fund: $('fsName').value.trim().slice(0, 150),
+      picks: [...picked].map(([id, name]) => ({ id, name })),
     };
   }
 
   /** Puts a scan into the form; throws if it is malformed. */
   function applyScan(scan) {
-    const rules = cleanRules(scan.rules);
-    editorRules = rules;
-    renderRuleEditor();
+    ruleEditor.set(cleanScreeners(scan.screeners || scan.rules));
     if (FUND_SCAN_TIMEFRAMES[scan.timeframe]) $('fsTimeframe').value = scan.timeframe;
     if (typeof scan.fund === 'string' && scan.fund) $('fsName').value = scan.fund.slice(0, 150);
+    setPicked(scan.picks);
   }
 
   function say(message) {
@@ -1779,6 +2054,7 @@ function initFundScan() {
   renderSavedList();
   loadSharedScan();
 
+
   async function scanHolding(h, tf, rules) {
     const key = `${tf.series}|${h.searchId || `name:${h.name}`}`;
     if (!candleCache.has(key)) {
@@ -1787,16 +2063,15 @@ function initFundScan() {
     }
     const data = await candleCache.get(key);
     if (data.error) return { ...h, error: data.error };
-    const scan = evaluateRules(tf.build(data.bars), rules);
+    const scan = evaluateScreeners(tf.build(data.bars), rules);
     return { ...h, symbol: data.symbol, exchange: data.exchange, ...scan };
   }
 
   function fundCardHtml(fund, index) {
     const scanned = fund.rows.filter((r) => !r.error);
     const matches = scanned.filter((r) => r.match);
-    const visible = fund.showAll ? fund.rows : matches;
+    const visible = fund.showAll ? fund.rows : fund.rows.filter((r) => rowPasses(r, fund.filter));
     const tf = FUND_SCAN_TIMEFRAMES[fund.tfKey];
-    const yes = (ok) => (ok ? '<span class="pnl-profit">✓</span>' : '<span class="pnl-loss">✗</span>');
     const intraday = tf.series === 'hour';
     const when = (t) =>
       new Date(t * 1000).toLocaleString('en-IN', {
@@ -1823,23 +2098,16 @@ function initFundScan() {
             ? ` <small>${escapeHtml(r.instrument)}</small>`
             : '';
       if (r.error) {
-        return `<tr class="fs-muted"><td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td><td colspan="${fund.rules.length + 2}">${escapeHtml(r.error)}</td></tr>`;
+        return `<tr class="fs-muted"><td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td><td colspan="${screenerColumnCount(fund.rules) + 1}">${escapeHtml(r.error)}</td></tr>`;
       }
-      const num = (v) => (v === null ? '—' : formatNumber(v, 2));
-      return `<tr${r.match ? ' class="fs-match"' : ''}>
+      return `<tr${rowPasses(r, fund.filter) ? ' class="fs-match"' : ''}>
         <td>${link}</td><td>${escapeHtml(r.name)}${side}</td><td>${formatNumber(r.weight, 2)}%</td>
         <td>${formatNumber(r.current.c, 2)}</td>
-        ${r.results
-          .map(
-            (res, i) =>
-              `<td class="fs-check" title="${escapeHtml(ruleLabel(fund.rules[i]))}">${yes(res.ok)}<small class="fs-vals">${num(res.left)} vs ${num(res.right)}</small></td>`
-          )
-          .join('')}
-        <td class="fs-check">${r.match ? '<strong class="pnl-profit">Yes</strong>' : '—'}</td>
+        ${screenerCellsHtml(r, fund.rules)}
       </tr>`;
     };
     const order = (a, b) =>
-      (b.match ? 1 : 0) - (a.match ? 1 : 0) || (a.error ? 1 : 0) - (b.error ? 1 : 0) || b.weight - a.weight;
+      (rowPasses(b, fund.filter) ? 1 : 0) - (rowPasses(a, fund.filter) ? 1 : 0) || (a.error ? 1 : 0) - (b.error ? 1 : 0) || b.weight - a.weight;
 
     return `<div class="card table-card fs-fund">
       <h3>${escapeHtml(fund.name)}</h3>
@@ -1849,16 +2117,17 @@ function initFundScan() {
         <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
         · ${tf.label} candles${latest ? `, current one starts ${escapeHtml(when(latest.t))}` : ''}
       </p>
-      <ol class="hint fs-rules">${fund.rules.map((rule) => `<li>${escapeHtml(ruleLabel(rule))}</li>`).join('')}</ol>
+      ${screenerListHtml(fund.rules)}
       ${others}
+      ${screenerFilterHtml(fund.rules, `data-fs-filter="${index}"`, fund.filter)}
       <label class="fs-toggle"><input type="checkbox" data-showall="${index}" ${fund.showAll ? 'checked' : ''}/> Show all holdings</label>
       ${
         visible.length === 0
-          ? `<p class="hint">No holding meets ${fund.rules.length === 1 ? 'the condition' : `all ${fund.rules.length} conditions`} on the latest ${tf.label} candle. Tick "Show all holdings" to see how close each one is.</p>`
+          ? `<p class="hint">${noMatchText(fund.rules, fund.filter, 'holding', tf.label)} Tick "Show all holdings" to see how close each one is.</p>`
           : `<div class="table-scroll table-scroll-daily"><table>
         <thead><tr>
           <th>Symbol</th><th>Company</th><th>Weight</th><th>Close</th>
-          ${fund.rules.map((rule, i) => `<th title="${escapeHtml(ruleLabel(rule))}">#${i + 1}</th>`).join('')}<th>Match</th>
+          ${screenerHeadHtml(fund.rules)}
         </tr></thead>
         <tbody>${[...visible].sort(order).map(row).join('')}</tbody>
       </table></div>`
@@ -1871,6 +2140,12 @@ function initFundScan() {
     resultsEl.querySelectorAll('[data-showall]').forEach((box) => {
       box.addEventListener('change', () => {
         funds[Number(box.dataset.showall)].showAll = box.checked;
+        render();
+      });
+    });
+    resultsEl.querySelectorAll('[data-fs-filter]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        funds[Number(sel.dataset.fsFilter)].filter = sel.value;
         render();
       });
     });
@@ -1905,7 +2180,7 @@ function initFundScan() {
       ]);
       return result;
     });
-    return { ...fund, rows, otherMatches, showAll: false, tfKey, rules };
+    return { ...fund, rows, otherMatches, showAll: false, filter: 'any', tfKey, rules };
   }
 
   async function runScan(jobs, tfKey, rules) {
@@ -1941,13 +2216,17 @@ function initFundScan() {
     e.preventDefault();
     const file = $('fsFile').files[0];
     try {
-      const rules = cleanRules(readRuleEditor());
-      editorRules = rules;
-      storeRules(rules);
-      const names = file ? await readFundNamesFromFile(file) : [$('fsName').value.trim()].filter(Boolean);
-      if (!names.length) throw new Error(file ? 'No fund names found in the first column of that file.' : 'Enter a fund name.');
+      const rules = ruleEditor.commit();
+      const fileNames = file ? await readFundNamesFromFile(file) : [];
+      if (file && !fileNames.length) throw new Error('No fund names found in the first column of that file.');
+      const jobs = [...[...picked].map(([id, name]) => ({ pick: { id, name } })), ...fileNames.map((term) => ({ term }))];
+      if (!jobs.length) {
+        const name = $('fsName').value.trim();
+        if (!name) throw new Error('Enter a fund name, choose a file, or tick funds from a list.');
+        jobs.push({ term: name });
+      }
       await runScan(
-        names.map((term) => ({ term })),
+        jobs,
         $('fsTimeframe').value,
         rules
       );
@@ -1955,6 +2234,321 @@ function initFundScan() {
       renderError(statusEl, escapeHtml(err.message));
     }
   });
+}
+
+// ---- Index Options Scan: calls and puts around a live index (Nifty, Bank Nifty, Sensex…), checked against its own conditions ----
+
+const OPT_SETTINGS_KEY = 'sensexOptionScan'; // names kept from when only Sensex was supported
+const OPT_RULE_STORAGE_KEY = 'sensexOptionRules';
+const MARKET_OPEN_MIN = 9 * 60 + 15; // 09:15 IST
+const MARKET_CLOSE_MIN = 15 * 60 + 30; // 15:30 IST
+const REFRESH_DELAY_MS = 20000; // wait after a candle closes so the data source has the finished candle
+
+// `m` is the candle size the proxy fetches; `build` groups those candles into the chosen timeframe.
+const OPT_TIMEFRAMES = {
+  '1m': { label: '1-minute', m: 1, every: 1, build: (bars) => bars },
+  '3m': { label: '3-minute', m: 3, every: 3, build: (bars) => bars },
+  '5m': { label: '5-minute', m: 5, every: 5, build: (bars) => bars },
+  '30m': { label: '30-minute', m: 30, every: 30, build: (bars) => bars },
+  '1h': { label: '1-hour', m: 60, every: 60, build: (bars) => bars },
+  '3h': { label: '3-hour', m: 60, every: 180, build: (bars) => aggregateBars(bars, 3) },
+};
+
+const IST_MS = 19800000;
+
+/** Minutes since midnight and weekday (0 = Sunday) in IST for a time in ms. */
+function istParts(ms) {
+  const d = new Date(ms + IST_MS);
+  return { minutes: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60, weekday: d.getUTCDay() };
+}
+
+/**
+ * When the current candle of a timeframe closes (ms), for candles aligned to the 09:15 IST open.
+ * Outside market hours it is the first candle close of the next weekday session. Exchange holidays are not known,
+ * so a refresh on a holiday just shows the same prices again.
+ */
+function nextCandleClose(nowMs, every) {
+  const midnight = (ms) => ms - ((ms + IST_MS) % 86400000); // IST midnight of that day, in ms
+  const at = (dayStart, minutes) => dayStart + minutes * 60000;
+  const { minutes, weekday } = istParts(nowMs);
+  const today = midnight(nowMs);
+  const closeOf = (dayStart, m) => {
+    const bucketEnd = MARKET_OPEN_MIN + (Math.floor((m - MARKET_OPEN_MIN) / every) + 1) * every;
+    return at(dayStart, Math.min(bucketEnd, MARKET_CLOSE_MIN));
+  };
+  const weekdayOpen = weekday >= 1 && weekday <= 5;
+  if (weekdayOpen && minutes >= MARKET_OPEN_MIN && minutes < MARKET_CLOSE_MIN) return closeOf(today, minutes);
+  if (weekdayOpen && minutes < MARKET_OPEN_MIN) return closeOf(today, MARKET_OPEN_MIN);
+  let day = today + 86400000;
+  while ([0, 6].includes(istParts(day).weekday)) day += 86400000;
+  return closeOf(day, MARKET_OPEN_MIN);
+}
+
+function istTime(ms, withDate = false) {
+  return (
+    new Date(ms).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(withDate ? { day: '2-digit', month: 'short' } : {}),
+    }) + ' IST'
+  );
+}
+
+function formatExpiry(date) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IN', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function initOptionScan() {
+  const statusEl = $('optScanStatus');
+  const resultsEl = $('optScanResults');
+  const fields = ['osIndex', 'osCurrent', 'osNext', 'osCE', 'osPE', 'osBelow', 'osAbove', 'osTimeframe', 'osAuto'];
+  let running = false;
+  let timer = null;
+  let nextRefreshAt = null;
+  let last = null; // { spot, spotTime, atm, tfKey, rules, cards, at }
+  const showAll = {};
+  const filters = {}; // expiry -> 'any' or a screener index
+
+  // Its own conditions; the first time, it starts from the fund scan's conditions.
+  let hasOwnRules = false;
+  try {
+    hasOwnRules = Boolean(localStorage.getItem(OPT_RULE_STORAGE_KEY));
+  } catch {
+    // Storage blocked: start from the fund scan's conditions.
+  }
+  const ruleEditor = createScreenerEditor({
+    containerEl: $('osScreeners'),
+    addBtn: $('osAddScreener'),
+    storageKey: OPT_RULE_STORAGE_KEY,
+    initial: hasOwnRules ? null : loadScreeners(RULE_STORAGE_KEY),
+  });
+
+  // ---- Settings remembered on this device ----
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPT_SETTINGS_KEY) || 'null');
+    if (saved) {
+      fields.forEach((id) => {
+        if (!(id in saved)) return;
+        const el = $(id);
+        if (el.type === 'checkbox') el.checked = Boolean(saved[id]);
+        else if (el.tagName !== 'SELECT' || [...el.options].some((o) => o.value === saved[id])) el.value = saved[id];
+      });
+    }
+  } catch {
+    // Storage blocked or unreadable: keep the defaults.
+  }
+
+  function saveSettings() {
+    try {
+      const out = {};
+      fields.forEach((id) => {
+        const el = $(id);
+        out[id] = el.type === 'checkbox' ? el.checked : el.value;
+      });
+      localStorage.setItem(OPT_SETTINGS_KEY, JSON.stringify(out));
+    } catch {
+      // Not remembered; the scan still works.
+    }
+  }
+
+  function readSettings() {
+    const count = (id, label) => {
+      const n = Number($(id).value);
+      if (!Number.isInteger(n) || n < 0 || n > 10) throw new Error(`${label} must be a whole number from 0 to 10.`);
+      return n;
+    };
+    const weeks = [$('osCurrent').checked && 0, $('osNext').checked && 1].filter((w) => w !== false);
+    const types = [$('osCE').checked && 'ce', $('osPE').checked && 'pe'].filter(Boolean);
+    if (!weeks.length) throw new Error('Tick Current expiry, Next expiry or both.');
+    if (!types.length) throw new Error('Tick CE, PE or both.');
+    return {
+      index: $('osIndex').value,
+      weeks,
+      types,
+      below: count('osBelow', 'Strikes below ATM'),
+      above: count('osAbove', 'Strikes above ATM'),
+      tfKey: $('osTimeframe').value,
+    };
+  }
+
+  // ---- Auto refresh ----
+  function stopAuto() {
+    clearTimeout(timer);
+    timer = null;
+    nextRefreshAt = null;
+  }
+
+  function scheduleAuto() {
+    stopAuto();
+    if (!$('osAuto').checked) return;
+    const tf = OPT_TIMEFRAMES[$('osTimeframe').value];
+    nextRefreshAt = nextCandleClose(Date.now(), tf.every) + REFRESH_DELAY_MS;
+    // Browsers delay long timers in background tabs, so check every 30 s instead of one long wait.
+    const tick = () => {
+      if (Date.now() >= nextRefreshAt) run(true);
+      else timer = setTimeout(tick, Math.min(30000, nextRefreshAt - Date.now()));
+    };
+    timer = setTimeout(tick, Math.min(30000, Math.max(0, nextRefreshAt - Date.now())));
+    renderStatus();
+  }
+
+  // ---- Rendering ----
+  function renderStatus(title) {
+    const lines = [];
+    if (last) {
+      lines.push([escapeHtml(last.indexName), `${formatNumber(last.spot, 2)} <small>(${istTime(last.spotTime * 1000, true)})</small>`]);
+      lines.push(['ATM strike', `${formatNumber(last.atm, 0)} <small>(strikes ${formatNumber(last.step, 0)} apart)</small>`]);
+      lines.push(['Last refreshed', istTime(last.at, true)]);
+    }
+    lines.push(['Auto refresh', nextRefreshAt ? `On · next at ${istTime(nextRefreshAt - REFRESH_DELAY_MS, true)}` : 'Off']);
+    const matches = last ? last.cards.reduce((sum, c) => sum + c.rows.filter((r) => r.match).length, 0) : 0;
+    renderResultCard(
+      statusEl,
+      title || (last ? `${matches} option${matches === 1 ? '' : 's'} match` : 'Index options'),
+      '',
+      lines.map(([label, value]) => ({ label, value }))
+    );
+  }
+
+  function cardHtml(card) {
+    const tf = OPT_TIMEFRAMES[last.tfKey];
+    const rules = last.rules;
+    const all = showAll[card.expiry];
+    const filter = filters[card.expiry] || 'any';
+    const scanned = card.rows.filter((r) => !r.error);
+    const matches = scanned.filter((r) => r.match);
+    const visible = all ? card.rows : card.rows.filter((r) => rowPasses(r, filter));
+    const order = (a, b) => (rowPasses(b, filter) ? 1 : 0) - (rowPasses(a, filter) ? 1 : 0) || a.type.localeCompare(b.type) || a.strike - b.strike;
+    const row = (r) => {
+      const name = `<strong>${formatNumber(r.strike, 0)} ${r.type.toUpperCase()}</strong>${r.strike === last.atm ? ' <small class="os-atm">ATM</small>' : ''}`;
+      if (r.error) return `<tr class="fs-muted"><td>${name}</td><td colspan="${screenerColumnCount(rules) + 1}">${escapeHtml(r.error)}</td></tr>`;
+      return `<tr${rowPasses(r, filter) ? ' class="fs-match"' : ''}>
+        <td>${name}</td><td>${formatNumber(r.current.c, 2)}</td>
+        ${screenerCellsHtml(r, rules)}
+      </tr>`;
+    };
+    return `<div class="card table-card fs-fund">
+      <h3>${escapeHtml(last.indexName)} · ${card.week === 0 ? 'current' : 'next'} expiry ${escapeHtml(formatExpiry(card.expiry))}</h3>
+      <p class="hint screener-summary">
+        ${card.rows.length} contracts · ${scanned.length} scanned ·
+        <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
+        · ${tf.label} candles${card.lotSize ? ` · lot size ${card.lotSize}` : ''}
+      </p>
+      ${screenerListHtml(rules)}
+      ${screenerFilterHtml(rules, `data-os-filter="${escapeHtml(card.expiry)}"`, filter)}
+      <label class="fs-toggle"><input type="checkbox" data-os-all="${escapeHtml(card.expiry)}" ${all ? 'checked' : ''}/> Show all strikes</label>
+      ${
+        visible.length === 0
+          ? `<p class="hint">${noMatchText(rules, filter, 'option', tf.label)} Tick "Show all strikes" to see how close each one is.</p>`
+          : `<div class="table-scroll table-scroll-daily"><table>
+        <thead><tr><th>Option</th><th>Price</th>${screenerHeadHtml(rules)}</tr></thead>
+        <tbody>${[...visible].sort(order).map(row).join('')}</tbody>
+      </table></div>`
+      }
+    </div>`;
+  }
+
+  function renderCards() {
+    if (!last) return;
+    resultsEl.innerHTML = last.cards.map(cardHtml).join('');
+    resultsEl.querySelectorAll('[data-os-filter]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        filters[sel.dataset.osFilter] = sel.value;
+        renderCards();
+      });
+    });
+    resultsEl.querySelectorAll('[data-os-all]').forEach((box) => {
+      box.addEventListener('change', () => {
+        showAll[box.dataset.osAll] = box.checked;
+        renderCards();
+      });
+    });
+  }
+
+  // ---- Scan ----
+  async function scanContract(index, contract, strike, type, tf, rules) {
+    const base = { strike, type };
+    if (!contract) return { ...base, error: 'This strike is not listed for this expiry.' };
+    try {
+      const data = await fundProxy(`/options/candles?index=${index}&id=${encodeURIComponent(contract.id)}&m=${tf.m}`);
+      if (!data.bars.length) return { ...base, error: 'No trades yet.' };
+      const result = evaluateScreeners(tf.build(data.bars), rules);
+      return { ...base, ...result };
+    } catch (err) {
+      return { ...base, error: err.message };
+    }
+  }
+
+  async function run(fromTimer = false) {
+    if (running) return;
+    let settings;
+    let rules;
+    try {
+      settings = readSettings();
+      rules = ruleEditor.commit();
+    } catch (err) {
+      renderError(statusEl, escapeHtml(err.message));
+      return;
+    }
+    running = true;
+    $('osRun').disabled = true;
+    const tf = OPT_TIMEFRAMES[settings.tfKey];
+    try {
+      const indexName = $('osIndex').selectedOptions[0].textContent;
+      renderStatus(fromTimer ? 'Auto refreshing…' : `Loading the live ${indexName}…`);
+      const first = await fundProxy(`/options/chain?index=${settings.index}`);
+      const step = first.step;
+      if (!step) throw new Error(`Could not work out the ${indexName} strike gap.`);
+      const atm = Math.round(first.spot / step) * step;
+      const strikes = [];
+      for (let k = -settings.below; k <= settings.above; k++) strikes.push(atm + k * step);
+
+      const cards = [];
+      for (const week of settings.weeks) {
+        const expiry = first.expiries[week];
+        if (!expiry) continue;
+        const chain = week === 0 && first.expiry === expiry ? first : await fundProxy(`/options/chain?index=${settings.index}&expiry=${expiry}`);
+        const byStrike = new Map(chain.strikes.map((s) => [s.strike, s]));
+        const jobs = strikes.flatMap((strike) => settings.types.map((type) => ({ strike, type, contract: byStrike.get(strike)?.[type] })));
+        let done = 0;
+        const rows = await mapLimit(jobs, 4, async (job) => {
+          const r = await scanContract(settings.index, job.contract, job.strike, job.type, tf, rules);
+          done += 1;
+          renderResultCard(statusEl, 'Scanning options…', '', [
+            { label: 'Expiry', value: escapeHtml(formatExpiry(expiry)) },
+            { label: 'Progress', value: `${done} of ${jobs.length}` },
+          ]);
+          return r;
+        });
+        cards.push({ week, expiry, lotSize: chain.lotSize, rows });
+      }
+      if (!cards.length) throw new Error('No expiry found for the selected option.');
+      last = { indexName, step, spot: first.spot, spotTime: first.spotTime, atm, tfKey: settings.tfKey, rules, cards, at: Date.now() };
+      renderCards();
+      renderStatus();
+    } catch (err) {
+      renderError(statusEl, escapeHtml(err.message));
+    } finally {
+      running = false;
+      $('osRun').disabled = false;
+      scheduleAuto();
+    }
+  }
+
+  $('formOptScan').addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveSettings();
+    run();
+  });
+  $('formOptScan').addEventListener('change', (e) => {
+    saveSettings();
+    if (e.target.id === 'osAuto' || e.target.id === 'osTimeframe') {
+      if ($('osAuto').checked && !last) run();
+      else scheduleAuto();
+    }
+  });
+  if ($('osAuto').checked) scheduleAuto();
 }
 
 function runInitialCalculations() {
@@ -1979,6 +2573,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMtfPnl();
   initScreener();
   initFundScan();
+  initOptionScan();
   runInitialCalculations();
 });
 

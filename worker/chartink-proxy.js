@@ -6,9 +6,14 @@
 //
 // Fund holdings scan (data from Groww and Yahoo Finance):
 //   GET /fund/search?q=<fund name>      -> { funds: [{ id, name }] }
+//   GET /fund/lists                    -> { sif: [{ id, name, type, aum }], top: [...100 largest equity funds] }
 //   GET /fund/holdings?id=<fund id>     -> { id, name, portfolioDate, holdings: [{ name, searchId, instrument, weight }] }
 //   GET /candles?sid=<stock id>&name=..&tf=hour|day|week|month -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
 //       tf=hour: 1-hour bars for 1 year; day/week/month: daily bars for 2/5/10 years (the page groups them)
+//
+// Index options scan (data from Groww). index = nifty | banknifty | finnifty | midcpnifty | sensex
+//   GET /options/chain?index=..&expiry=YYYY-MM-DD -> { index, spot, spotTime, step, expiries, expiry, lotSize, strikes: [{ strike, ce: { id, ltp }, pe }] }
+//   GET /options/candles?index=..&id=<contract>&m=1|3|5|30|60 -> { id, bars: [{ t, o, h, l, c }] }
 
 const CHARTINK = 'https://chartink.com';
 const USER_AGENT = 'Mozilla/5.0 (compatible; FinanceSuiteProxy/1.0)';
@@ -153,6 +158,41 @@ async function fundHoldings(id) {
   };
 }
 
+// Ready-made fund lists for the page: every SIF (Groww files them under "Long-Short" categories) and the
+// 100 largest equity mutual funds by assets. Fund-of-funds are left out (they hold funds, not stocks).
+const FUND_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+let fundListCache = null;
+
+const cleanFundName = (name) => String(name || '').replace(/\s+/g, ' ').trim();
+
+async function fundLists() {
+  if (fundListCache && Date.now() - fundListCache.at < FUND_LIST_TTL_MS) return fundListCache.body;
+  const body = await getJson(
+    `${GROWW}/v1/api/search/v1/derived/scheme?available_for_investment=true&doc_type=scheme&page=0&plan_type=Direct&q=&size=3000&sort_by=2`
+  );
+  const all = (body.content || []).map((f) => ({
+    id: f.direct_search_id || f.id,
+    name: cleanFundName(f.direct_scheme_name || f.scheme_name),
+    category: f.category,
+    subCategory: f.sub_category || '',
+    aum: typeof f.aum === 'number' ? f.aum : 0,
+  }));
+  const isSif = (f) => /long-short/i.test(f.subCategory);
+  const isFof = (f) => /\b(fof|fund of funds?)\b/i.test(f.name);
+  const pick = ({ id, name, subCategory, aum }) => ({ id, name, type: subCategory, aum });
+  const result = {
+    sif: all.filter(isSif).sort((a, b) => a.name.localeCompare(b.name)).map(pick),
+    top: all
+      .filter((f) => f.category === 'Equity' && !isSif(f) && !isFof(f))
+      .sort((a, b) => b.aum - a.aum)
+      .slice(0, 100)
+      .map(pick),
+  };
+  if (!result.sif.length && !result.top.length) throw new Error('Could not load the fund lists.');
+  fundListCache = { at: Date.now(), body: result };
+  return result;
+}
+
 // Holdings of derivatives (futures) come without a stock id, and names can be old ones.
 // Renamed companies: cleaned old name -> current NSE symbol.
 const NAME_ALIASES = { 'larsen toubro infotech': { nse: 'LTM', displayName: 'LTIMindtree' } };
@@ -232,6 +272,73 @@ async function stockCandles(searchId, name, series) {
   return { error: 'No price data found for this stock.', status: 404 };
 }
 
+// ---- Index options (Groww: live index value, option chain and contract candles) ----
+
+// Indices the options scan supports. `slug` is Groww's option-chain name, `spot` its live-index symbol,
+// `prefix` the start of every contract id (for example BANKNIFTY26NOV57000CE).
+const OPTION_INDICES = {
+  nifty: { name: 'Nifty 50', slug: 'nifty', exchange: 'NSE', spot: 'NIFTY', prefix: 'NIFTY' },
+  banknifty: { name: 'Bank Nifty', slug: 'nifty-bank', exchange: 'NSE', spot: 'BANKNIFTY', prefix: 'BANKNIFTY' },
+  finnifty: { name: 'Fin Nifty', slug: 'nifty-financial-services', exchange: 'NSE', spot: 'FINNIFTY', prefix: 'FINNIFTY' },
+  midcpnifty: { name: 'Midcap Nifty', slug: 'nifty-midcap-select', exchange: 'NSE', spot: 'NIFTYMIDSELECT', prefix: 'MIDCPNIFTY' },
+  sensex: { name: 'Sensex', slug: 'sp-bse-sensex', exchange: 'BSE', spot: 'SENSEX', prefix: 'SENSEX' },
+};
+const CHAIN_WINDOW = 0.05; // only strikes within 5% of the index value are returned
+const OPTION_INTERVALS = { 1: 7, 3: 10, 5: 30, 30: 60, 60: 90 }; // candle minutes -> days of history to ask for
+
+async function indexSpot(index) {
+  const body = await getJson(`${GROWW}/v1/api/stocks_data/v1/accord_points/exchange/${index.exchange}/segment/CASH/latest_indices_ohlc/${index.spot}`);
+  if (typeof body.value !== 'number') throw new Error(`Could not read the live ${index.name}.`);
+  return { spot: round2(body.value), spotTime: body.tsInMillis };
+}
+
+async function optionChain(index, expiry) {
+  const query = expiry ? `?expiry=${expiry}` : '';
+  const [body, { spot, spotTime }] = await Promise.all([
+    getJson(`${GROWW}/v1/api/option_chain_service/v1/option_chain/derivatives/${index.slug}${query}`),
+    indexSpot(index),
+  ]);
+  const chain = body.optionChain;
+  if (!chain?.optionChains) throw new Error(`Could not read the ${index.name} option chain.`);
+  const leg = (o) => (o?.growwContractId ? { id: o.growwContractId, ltp: o.ltp ?? null } : null);
+  const strikes = chain.optionChains
+    .map((row) => {
+      const strike = (row.callOption?.strikePrice ?? row.putOption?.strikePrice ?? 0) / 100;
+      return { strike, ce: leg(row.callOption), pe: leg(row.putOption) };
+    })
+    .filter((s) => s.strike && Math.abs(s.strike - spot) <= spot * CHAIN_WINDOW)
+    .sort((x, y) => x.strike - y.strike);
+  // Strike gap near the index value (far strikes can be listed further apart).
+  let step = null;
+  for (let i = 1; i < strikes.length; i++) {
+    const gap = round2(strikes[i].strike - strikes[i - 1].strike);
+    if (gap > 0 && (step === null || gap < step)) step = gap;
+  }
+  const details = chain.expiryDetailsDto || {};
+  return {
+    index: index.name,
+    spot,
+    spotTime,
+    step,
+    expiries: details.expiryDates || [],
+    expiry: expiry || details.currentExpiry || null,
+    lotSize: details.expiryLotSize || null,
+    strikes,
+  };
+}
+
+async function optionCandles(index, id, minutes) {
+  const end = Date.now();
+  const start = end - OPTION_INTERVALS[minutes] * 86400000;
+  const body = await getJson(
+    `${GROWW}/v1/api/stocks_fo_data/v1/charting_service/chart/exchange/${index.exchange}/segment/FNO/${id}?endTimeInMillis=${end}&intervalInMinutes=${minutes}&startTimeInMillis=${start}`
+  );
+  const bars = (body.candles || [])
+    .filter((c) => c.slice(0, 5).every((v) => typeof v === 'number'))
+    .map(([t, o, h, l, c]) => ({ t, o, h, l, c }));
+  return { id, bars };
+}
+
 export default {
   async fetch(request) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
@@ -258,6 +365,10 @@ export default {
         return json(request, { funds: await searchFunds(term) });
       }
 
+      if (url.pathname === '/fund/lists') {
+        return json(request, await fundLists());
+      }
+
       if (url.pathname === '/fund/holdings') {
         const id = url.searchParams.get('id') || '';
         if (!/^[a-z0-9-]{1,200}$/.test(id)) return json(request, { error: 'Invalid fund.' }, 400);
@@ -273,6 +384,21 @@ export default {
         if (!series) return json(request, { error: 'Invalid timeframe.' }, 400);
         const result = await stockCandles(sid, name, series);
         return result.error ? json(request, { error: result.error }, result.status) : json(request, result.body);
+      }
+
+      if (url.pathname === '/options/chain' || url.pathname === '/options/candles') {
+        const index = OPTION_INDICES[url.searchParams.get('index') || ''];
+        if (!index) return json(request, { error: 'Unknown index.' }, 400);
+        if (url.pathname === '/options/chain') {
+          const expiry = url.searchParams.get('expiry') || '';
+          if (expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) return json(request, { error: 'Invalid expiry date.' }, 400);
+          return json(request, await optionChain(index, expiry));
+        }
+        const id = url.searchParams.get('id') || '';
+        const minutes = Number(url.searchParams.get('m') || 0);
+        if (!new RegExp(`^${index.prefix}[0-9A-Z]{4,20}(CE|PE)$`).test(id)) return json(request, { error: 'Invalid option contract.' }, 400);
+        if (!OPTION_INTERVALS[minutes]) return json(request, { error: 'Invalid candle size.' }, 400);
+        return json(request, await optionCandles(index, id, minutes));
       }
 
       return json(request, { error: 'Not found.' }, 404);
