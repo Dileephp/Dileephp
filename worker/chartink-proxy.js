@@ -6,8 +6,10 @@
 //
 // Fund holdings scan (data from Groww and Yahoo Finance):
 //   GET /fund/search?q=<fund name>      -> { funds: [{ id, name }] }
-//   GET /fund/lists                    -> { sif: [{ id, name, type, aum }], top: [...200 largest equity and hybrid funds] }
+//   GET /fund/lists                    -> { sif: [{ id, name, type, aum }], top: [...200 largest equity and hybrid funds],
+//                                          etf: [...every equity ETF, ids start with "etf:"] }
 //   GET /fund/holdings?id=<fund id>     -> { id, name, portfolioDate, holdings: [{ name, searchId, instrument, weight }] }
+//                                          (an "etf:<id>" id reads the ETF's holdings)
 //   GET /candles?sid=<stock id>&name=..&tf=hour|day|week|month -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
 //       tf=hour: 1-hour bars for 1 year; day/week/month: daily bars for 2/5/10 years (the page groups them)
 //
@@ -167,11 +169,87 @@ let fundListCache = null;
 
 const cleanFundName = (name) => String(name || '').replace(/\s+/g, ' ').trim();
 
+// ---- ETFs (Groww's ETF screener and ETF pages) ----
+// The screener returns at most 100 ETFs per request and ignores paging, so the list is collected by fund size
+// (AUM in Rs crore): any size range that comes back full is split in two and asked again.
+const ETF_SCREENER = `${GROWW}/bff/web/stocks/screener/web-pages/screener_stocks?screenerId=etf`;
+const ETF_SCREENER_CAP = 100;
+const ETF_MAX_REQUESTS = 40; // Cloudflare's free plan allows 50 outgoing requests per call
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
+
+async function etfScreener(lo, hi) {
+  const data = {
+    filterCriteria: {
+      category: [{ value: 'EQUITY', key: 'assetClass', operator: 'EQUALS', label: 'Equity' }],
+      aum: [{ key: 'aum', operator: 'BETWEEN', value: `${lo},${hi}`, label: 'AUM' }],
+    },
+    sortCriteria: { key: 'aum', order: 'DESCENDING' },
+  };
+  const res = await fetch(ETF_SCREENER, {
+    method: 'POST',
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'x-platform': 'web',
+      'X-APP-ID': 'growwWeb',
+    },
+    body: new URLSearchParams({ data: JSON.stringify(data) }),
+  });
+  if (!res.ok) throw new Error(`ETF list request failed (${res.status})`);
+  return (await res.json()).data?.screenerList ?? [];
+}
+
+/** Every equity ETF (gold, silver, debt and liquid ETFs hold no stocks, so they are left out). */
+async function equityEtfs() {
+  let requests = 0;
+  async function range(lo, hi) {
+    requests += 1;
+    const rows = await etfScreener(lo, hi);
+    if (rows.length < ETF_SCREENER_CAP || hi - lo <= 1 || requests >= ETF_MAX_REQUESTS) return rows;
+    const mid = Math.floor((lo + hi) / 2);
+    const [low, high] = await Promise.all([range(lo, mid), range(mid, hi)]);
+    return [...low, ...high];
+  }
+  const byId = new Map();
+  for (const e of await range(0, 1000000)) {
+    if (!e.searchId || byId.has(e.searchId)) continue;
+    byId.set(e.searchId, {
+      id: `etf:${e.searchId}`,
+      name: cleanFundName(e.companyData?.shortName || e.nseScriptCode || e.searchId),
+      type: e.nseScriptCode ? `NSE: ${e.nseScriptCode}` : e.bseScriptCode ? `BSE: ${e.bseScriptCode}` : 'ETF',
+      aum: typeof e.aum === 'number' ? e.aum : 0,
+    });
+  }
+  return [...byId.values()].sort((a, b) => b.aum - a.aum);
+}
+
+async function etfHoldings(searchId) {
+  const res = await fetch(`${GROWW}/etfs/${encodeURIComponent(searchId)}`, { headers: { 'User-Agent': BROWSER_UA } });
+  if (!res.ok) throw new Error(`Could not open this ETF (${res.status}).`);
+  const html = await res.text();
+  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!match) throw new Error('Could not read this ETF.');
+  const page = JSON.parse(match[1]).props?.pageProps || {};
+  const companies = page.companyHeadersByIsin || {};
+  const holdings = (page.etfHoldingsData?.holdings || []).map((h) => {
+    const company = companies[h.isin] || {};
+    return { name: company.displayName || h.isin, searchId: company.searchId || '', instrument: 'Equity', weight: h.holdingSharePercentage };
+  });
+  return {
+    id: `etf:${searchId}`,
+    name: page.etfData?.header?.displayName || searchId,
+    portfolioDate: null,
+    holdings,
+  };
+}
+
 async function fundLists() {
   if (fundListCache && Date.now() - fundListCache.at < FUND_LIST_TTL_MS) return fundListCache.body;
-  const body = await getJson(
-    `${GROWW}/v1/api/search/v1/derived/scheme?available_for_investment=true&doc_type=scheme&page=0&plan_type=Direct&q=&size=3000&sort_by=2`
-  );
+  // The ETF list is a bonus: if Groww's ETF screener fails, the fund lists still load.
+  const [body, etf] = await Promise.all([
+    getJson(`${GROWW}/v1/api/search/v1/derived/scheme?available_for_investment=true&doc_type=scheme&page=0&plan_type=Direct&q=&size=3000&sort_by=2`),
+    equityEtfs().catch(() => []),
+  ]);
   const all = (body.content || []).map((f) => ({
     id: f.direct_search_id || f.id,
     name: cleanFundName(f.direct_scheme_name || f.scheme_name),
@@ -189,6 +267,7 @@ async function fundLists() {
       .sort((a, b) => b.aum - a.aum)
       .slice(0, TOP_FUND_COUNT)
       .map(pick),
+    etf,
   };
   if (!result.sif.length && !result.top.length) throw new Error('Could not load the fund lists.');
   fundListCache = { at: Date.now(), body: result };
@@ -373,6 +452,8 @@ export default {
 
       if (url.pathname === '/fund/holdings') {
         const id = url.searchParams.get('id') || '';
+        const etf = id.match(/^etf:([a-z0-9-]{1,200})$/);
+        if (etf) return json(request, await etfHoldings(etf[1]));
         if (!/^[a-z0-9-]{1,200}$/.test(id)) return json(request, { error: 'Invalid fund.' }, 400);
         return json(request, await fundHoldings(id));
       }

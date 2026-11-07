@@ -1839,6 +1839,10 @@ function createFundPicker(prefix, { slowNote = false } = {}) {
       return;
     }
     const words = el('PickFilter').value.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!fundLists[type]?.length) {
+      listEl.innerHTML = '<div class="fs-pick-empty">This list could not be loaded right now. Try again later.</div>';
+      return;
+    }
     const shown = fundLists[type]
       .map((f, i) => ({ ...f, rank: i + 1 }))
       .filter((f) => words.every((w) => f.name.toLowerCase().includes(w)));
@@ -1846,10 +1850,10 @@ function createFundPicker(prefix, { slowNote = false } = {}) {
       ? shown
           .map(
             (f) => `<label class="fs-pick-item"><input type="checkbox" data-pick="${escapeHtml(f.id)}"${picked.has(f.id) ? ' checked' : ''} />
-            <span>${type === 'top' ? `${f.rank}. ` : ''}${escapeHtml(f.name)}<small>${escapeHtml(f.type)} · ₹${formatNumber(f.aum, 0)} Cr</small></span></label>`
+            <span>${type === 'sif' ? '' : `${f.rank}. `}${escapeHtml(f.name)}<small>${escapeHtml(f.type)} · ₹${formatNumber(f.aum, 0)} Cr</small></span></label>`
           )
           .join('')
-      : '<div class="fs-pick-empty">No fund in this list matches that name.</div>';
+      : '<div class="fs-pick-empty">Nothing in this list matches that name.</div>';
   }
 
   function shownPickFunds() {
@@ -1905,7 +1909,7 @@ function createFundPicker(prefix, { slowNote = false } = {}) {
     picked.clear();
     if (Array.isArray(list)) {
       list
-        .filter((f) => f && /^[a-z0-9-]{1,200}$/.test(f.id) && typeof f.name === 'string')
+        .filter((f) => f && /^(etf:)?[a-z0-9-]{1,200}$/.test(f.id) && typeof f.name === 'string')
         .slice(0, MAX_PICKED)
         .forEach((f) => picked.set(f.id, f.name.slice(0, 150)));
     }
@@ -2137,7 +2141,7 @@ function initFundScan() {
     return `<div class="card table-card fs-fund">
       <h3>${escapeHtml(fund.name)}</h3>
       <p class="hint screener-summary">
-        Portfolio as of ${escapeHtml(String(fund.portfolioDate || '').slice(0, 10) || 'unknown')} ·
+        Portfolio as of ${escapeHtml(String(fund.portfolioDate || '').slice(0, 10) || 'latest disclosure')} ·
         ${fund.rows.length} stock holdings · ${scanned.length} scanned ·
         <strong class="${matches.length ? 'pnl-profit' : ''}">${matches.length} match${matches.length === 1 ? '' : 'es'}</strong>
         · ${tf.label} candles${latest ? `, current one starts ${escapeHtml(when(latest.t))}` : ''}
@@ -2680,7 +2684,7 @@ function initCommonStocks() {
     resultsEl.innerHTML = `<div class="card table-card fs-fund">
       <h3>Common stocks across ${n} funds</h3>
       <ol class="hint cs-legend">${state.funds
-        .map((f, i) => `<li><strong>F${i + 1}</strong> ${escapeHtml(f.name)} <small>(${f.holdings.length} stocks, as of ${escapeHtml(String(f.portfolioDate || '').slice(0, 10) || 'unknown')})</small></li>`)
+        .map((f, i) => `<li><strong>F${i + 1}</strong> ${escapeHtml(f.name)} <small>(${f.holdings.length} stocks, as of ${escapeHtml(String(f.portfolioDate || '').slice(0, 10) || 'latest disclosure')})</small></li>`)
         .join('')}</ol>
       <div class="cs-controls">
         <label class="fs-toggle fs-filter">Held by <select id="csMin">${options}</select></label>
