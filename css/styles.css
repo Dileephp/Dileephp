@@ -1196,3 +1196,19 @@ th .tooltip-content::after {
 .fs-skip {
   color: var(--muted);
 }
+
+/* Fund and options scans: the form gets the room (its condition rows are wide);
+   it takes the full width until a results card appears beside it. */
+#panel-fundscan .panel-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+}
+
+#panel-fundscan .panel-grid:has(> .result-card.hidden) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 900px) {
+  #panel-fundscan .panel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
