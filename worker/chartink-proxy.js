@@ -10,8 +10,10 @@
 //                                          etf: [...every equity ETF, ids start with "etf:"] }
 //   GET /fund/holdings?id=<fund id>     -> { id, name, portfolioDate, holdings: [{ name, searchId, instrument, weight }] }
 //                                          (an "etf:<id>" id reads the ETF's holdings)
-//   GET /candles?sid=<stock id>&name=..&tf=hour|day|week|month -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
-//       tf=hour: 1-hour bars for 1 year; day/week/month: daily bars for 2/5/10 years (the page groups them)
+//   GET /candles?sid=<stock id>&name=..&tf=min1|min5|min15|min30|hour|day|week|month
+//       -> { symbol, exchange, displayName, bars: [{ t, o, h, l, c }] }
+//       min1: 1-minute bars for 7 days; min5: 5-minute for 30 days; min15/min30: 60 days; hour: 1 year;
+//       day/week/month: daily bars for 2/5/10 years (the page groups them)
 //
 // Index options scan (data from Groww). index = nifty | banknifty | finnifty | midcpnifty | sensex
 //   GET /options/chain?index=..&expiry=YYYY-MM-DD -> { index, spot, spotTime, step, expiries, expiry, lotSize, strikes: [{ strike, ce: { id, ltp }, pe }] }
@@ -311,6 +313,10 @@ async function stockFromSearchId(searchId) {
 // Candle sizes the page can ask for. Weekly and monthly candles are built in the page from daily ones,
 // because Yahoo's own weekly/monthly series can switch interval on long ranges and add a duplicate live bar.
 const CANDLE_SERIES = {
+  min1: { interval: '1m', range: '7d' },
+  min5: { interval: '5m', range: '30d' },
+  min15: { interval: '15m', range: '60d' },
+  min30: { interval: '30m', range: '60d' },
   hour: { interval: '60m', range: '1y' },
   day: { interval: '1d', range: '2y' },
   week: { interval: '1d', range: '5y' },

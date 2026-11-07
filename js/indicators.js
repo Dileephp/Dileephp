@@ -15,10 +15,13 @@ export function aggregateBars(bars, hours = 3) {
     const ist = bar.t + IST_OFFSET_SECONDS;
     const day = Math.floor(ist / 86400);
     const minutes = Math.floor((ist % 86400) / 60);
-    const bucket = Math.floor((minutes - SESSION_START_MINUTES) / (hours * 60));
+    const size = Math.round(hours * 60); // candle length in minutes (3 minutes = 0.05 hours)
+    const bucket = Math.floor((minutes - SESSION_START_MINUTES) / size);
     const k = `${day}:${bucket}`;
     if (k !== key) {
-      out.push({ t: bar.t, o: bar.o, h: bar.h, l: bar.l, c: bar.c });
+      // Time the candle by its slot start (09:15, 09:18, …), even when the first minutes had no trades.
+      const start = day * 86400 + (SESSION_START_MINUTES + bucket * size) * 60 - IST_OFFSET_SECONDS;
+      out.push({ t: start, o: bar.o, h: bar.h, l: bar.l, c: bar.c });
       key = k;
     } else {
       const last = out[out.length - 1];

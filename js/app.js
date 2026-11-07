@@ -1591,6 +1591,11 @@ function noMatchText(screeners, filter, what, tfLabel) {
 
 // Candle sizes for the scan. `series` is what the proxy fetches (hourly or daily bars); the page groups them.
 const FUND_SCAN_TIMEFRAMES = {
+  '1m': { label: '1-minute', series: 'min1', build: (bars) => bars, tv: '1' },
+  '3m': { label: '3-minute', series: 'min1', build: (bars) => aggregateBars(bars, 3 / 60), tv: '3' },
+  '5m': { label: '5-minute', series: 'min5', build: (bars) => bars, tv: '5' },
+  '15m': { label: '15-minute', series: 'min15', build: (bars) => bars, tv: '15' },
+  '30m': { label: '30-minute', series: 'min30', build: (bars) => bars, tv: '30' },
   '1h': { label: '1-hour', series: 'hour', build: (bars) => aggregateBars(bars, 1), tv: '60' },
   '2h': { label: '2-hour', series: 'hour', build: (bars) => aggregateBars(bars, 2), tv: '120' },
   '3h': { label: '3-hour', series: 'hour', build: (bars) => aggregateBars(bars, 3), tv: '180' },
@@ -1801,6 +1806,9 @@ function createScreenerEditor({ containerEl, addBtn, storageKey, initial = null 
     },
   };
 }
+
+/** A number rounded to 2 decimals, kept as a number so Excel can sum and sort it. */
+const round2 = (v) => Math.round(Number(v) * 100) / 100;
 
 // ---- Fund picker shared by the Fund Holdings Scan and Common Stocks: tick funds from the SIF list and/or the
 // top 200 list. Element ids are the prefix + ListType, Picker, PickFilter, PickAll, PickNone, PickList, PickCount. ----
@@ -2101,7 +2109,7 @@ function initFundScan() {
     const matches = scanned.filter((r) => r.match);
     const visible = fund.showAll ? fund.rows : fund.rows.filter((r) => rowPasses(r, fund.filter));
     const tf = FUND_SCAN_TIMEFRAMES[fund.tfKey];
-    const intraday = tf.series === 'hour';
+    const intraday = !['day', 'week', 'month'].includes(tf.series);
     const when = (t) =>
       new Date(t * 1000).toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
@@ -2164,8 +2172,51 @@ function initFundScan() {
     </div>`;
   }
 
+  /** Every matching stock of every scanned fund, for one Excel file. */
+  function allMatchRows() {
+    return funds.flatMap((fund) => {
+      const tf = FUND_SCAN_TIMEFRAMES[fund.tfKey];
+      const multi = fund.rules.length > 1;
+      return fund.rows
+        .filter((r) => r.match)
+        .sort((a, b) => b.weight - a.weight)
+        .map((r) => [
+          fund.name.replace(/\s+/g, ' ').trim(),
+          r.symbol || '',
+          r.exchange || '',
+          r.name,
+          round2(r.weight),
+          round2(r.current.c),
+          multi ? r.matched.map((i) => `Screener ${i + 1}`).join(', ') : 'Yes',
+          tf.label,
+          String(fund.portfolioDate || '').slice(0, 10) || 'latest disclosure',
+        ]);
+    });
+  }
+
+  function exportBarHtml() {
+    if (!funds.length) return '';
+    const n = allMatchRows().length;
+    return `<div class="card fs-export">
+      <span><strong>${n}</strong> matching stock${n === 1 ? '' : 's'} across <strong>${funds.length}</strong> fund${funds.length === 1 ? '' : 's'}${running ? ' so far' : ''}</span>
+      <button type="button" id="fsExportAll" class="btn btn-secondary"${n ? '' : ' disabled'}>Download all matches (Excel)</button>
+    </div>`;
+  }
+
   function render() {
-    resultsEl.innerHTML = funds.map(fundCardHtml).join('');
+    resultsEl.innerHTML = exportBarHtml() + funds.map(fundCardHtml).join('');
+    $('fsExportAll')?.addEventListener('click', () => {
+      try {
+        downloadExcel({
+          title: `Fund holdings scan: matches (${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`,
+          headers: ['Fund', 'Symbol', 'Exchange', 'Company', 'Weight %', 'Close', 'Matched', 'Timeframe', 'Portfolio as of'],
+          rows: allMatchRows(),
+          filename: 'fund-scan-matches.xlsx',
+        });
+      } catch (err) {
+        renderError(statusEl, escapeHtml(err.message));
+      }
+    });
     resultsEl.querySelectorAll('[data-showall]').forEach((box) => {
       box.addEventListener('change', () => {
         funds[Number(box.dataset.showall)].showAll = box.checked;
@@ -2227,6 +2278,8 @@ function initFundScan() {
           errors.push(`${escapeHtml(jobs[i].term || jobs[i].pick?.name || '')}: ${escapeHtml(err.message)}`);
         }
       }
+      running = false;
+      render();
       if (errors.length && !funds.length) {
         renderError(statusEl, errors.join('<br>'));
       } else {
@@ -2478,9 +2531,49 @@ function initOptionScan() {
     </div>`;
   }
 
+  /** Every matching option of every expiry, for one Excel file. */
+  function allMatchRows() {
+    const tf = OPT_TIMEFRAMES[last.tfKey];
+    const multi = last.rules.length > 1;
+    return last.cards.flatMap((card) =>
+      card.rows
+        .filter((r) => r.match)
+        .sort((a, b) => a.type.localeCompare(b.type) || a.strike - b.strike)
+        .map((r) => [
+          last.indexName,
+          formatExpiry(card.expiry),
+          card.week === 0 ? 'Current' : 'Next',
+          r.strike,
+          r.type.toUpperCase(),
+          r.strike === last.atm ? 'ATM' : '',
+          round2(r.current.c),
+          multi ? r.matched.map((i) => `Screener ${i + 1}`).join(', ') : 'Yes',
+          tf.label,
+          card.lotSize ?? '',
+        ])
+    );
+  }
+
   function renderCards() {
     if (!last) return;
-    resultsEl.innerHTML = last.cards.map(cardHtml).join('');
+    const matchCount = allMatchRows().length;
+    resultsEl.innerHTML =
+      `<div class="card fs-export">
+        <span><strong>${matchCount}</strong> matching option${matchCount === 1 ? '' : 's'} across ${last.cards.length} expir${last.cards.length === 1 ? 'y' : 'ies'}</span>
+        <button type="button" id="osExportAll" class="btn btn-secondary"${matchCount ? '' : ' disabled'}>Download all matches (Excel)</button>
+      </div>` + last.cards.map(cardHtml).join('');
+    $('osExportAll').addEventListener('click', () => {
+      try {
+        downloadExcel({
+          title: `${last.indexName} options scan: matches (${last.indexName} ${formatNumber(last.spot, 2)}, ATM ${formatNumber(last.atm, 0)}, refreshed ${istTime(last.at, true)})`,
+          headers: ['Index', 'Expiry', 'Week', 'Strike', 'Type', 'ATM', 'Price', 'Matched', 'Timeframe', 'Lot size'],
+          rows: allMatchRows(),
+          filename: `${last.indexName.toLowerCase().replace(/\s+/g, '-')}-options-matches.xlsx`,
+        });
+      } catch (err) {
+        renderError(statusEl, escapeHtml(err.message));
+      }
+    });
     resultsEl.querySelectorAll('[data-os-filter]').forEach((sel) => {
       sel.addEventListener('change', () => {
         filters[sel.dataset.osFilter] = sel.value;

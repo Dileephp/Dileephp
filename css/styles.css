@@ -1246,3 +1246,13 @@ th .tooltip-content::after {
   flex: 1 1 200px;
   min-width: 0;
 }
+
+/* One Excel for every scanned fund's matches */
+.fs-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+}

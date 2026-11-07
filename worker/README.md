@@ -22,7 +22,7 @@ To avoid pasting it on every device, set `DEFAULT_CHARTINK_PROXY` near the top o
 - `GET /fund/lists` returns every SIF, the 200 largest equity and hybrid mutual funds by assets, and every equity ETF
   (from Groww), for the fund pickers. `GET /fund/holdings?id=etf:<ETF id>` returns an ETF's holdings.
 - `GET /fund/holdings?id=<fund id>` returns the fund's latest disclosed stock holdings, including futures and short positions.
-- `GET /candles?sid=<stock id>&name=<company name>` returns about one year of 1-hour candles (from Yahoo Finance) for the
+- `GET /candles?sid=<stock id>&name=<company name>` returns candles (from Yahoo Finance; `tf` = `min1`, `min5`, `min15`, `min30`, `hour`, `day`, `week` or `month`) for the
   **Fund Holdings Scan** tab, which builds 3-hour candles from them.
 - `GET /options/chain?index=<index>&expiry=<YYYY-MM-DD>` returns the live index value, its option expiries and the option
   contracts near it (from Groww). `index` is `nifty`, `banknifty`, `finnifty`, `midcpnifty` or `sensex`.
